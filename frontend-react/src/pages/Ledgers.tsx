@@ -1315,7 +1315,7 @@ export function Ledgers() {
                   onClick={() => selectQuickType("BOTH")}
                   onChange={() => { }}
                 />
-                <span>Both</span>
+                <span>Both (Customer & Vendor)</span>
               </label>
             </div>
 

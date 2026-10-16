@@ -1,0 +1,1 @@
+import{j as e}from"./vendor-react-DLUVoET_.js";function s(){return e.jsxs("div",{className:"p-6 space-y-6",children:[e.jsx("h1",{className:"text-3xl font-bold",children:"Backup & Resilience"}),e.jsx("p",{className:"text-gray-600",children:"Backup status ladder and restore workflow."})]})}export{s as default};

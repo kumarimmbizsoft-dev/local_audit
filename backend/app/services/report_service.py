@@ -144,8 +144,12 @@ class ReportService:
     # ---------- Trial Balance ----------
     @staticmethod
     def trial_balance(
-        db: Session, to_date: Optional[str] = None, company_id: Optional[UUID] = None
+        db: Session,
+        from_date: Optional[str] = None,
+        to_date: Optional[str] = None,
+        company_id: Optional[UUID] = None,
     ) -> Dict[str, Any]:
+        fd = _parse_date(from_date)
         td = _parse_date(to_date)
         ledgers = ReportService._get_ledgers(db, company_id)
         group_map = ReportService._group_map(db)
@@ -174,6 +178,8 @@ class ReportService:
             })
         rows.sort(key=lambda r: (r["group"], r["ledger"]))
         return {
+            "fromDate": fd.isoformat() if fd else None,
+            "toDate": td.isoformat() if td else None,
             "asOn": td.isoformat() if td else None,
             "rows": rows,
             "totalDebit": round(total_debit, 2),
@@ -210,13 +216,23 @@ class ReportService:
                 if abs(amount) < 0.005:
                     continue
                 income_total += amount
-                income.append({"ledger": l.name, "group": ReportService._group_path(l, group_map), "amount": round(amount, 2)})
+                income.append({
+                    "ledgerId": str(l.id),
+                    "ledger": l.name,
+                    "group": ReportService._group_path(l, group_map),
+                    "amount": round(amount, 2),
+                })
             else:
                 amount = net  # expense has debit (positive) net
                 if abs(amount) < 0.005:
                     continue
                 expense_total += amount
-                expense.append({"ledger": l.name, "group": ReportService._group_path(l, group_map), "amount": round(amount, 2)})
+                expense.append({
+                    "ledgerId": str(l.id),
+                    "ledger": l.name,
+                    "group": ReportService._group_path(l, group_map),
+                    "amount": round(amount, 2),
+                })
         income.sort(key=lambda r: r["ledger"])
         expense.sort(key=lambda r: r["ledger"])
         net_profit = income_total - expense_total
@@ -234,8 +250,12 @@ class ReportService:
     # ---------- Balance Sheet ----------
     @staticmethod
     def balance_sheet(
-        db: Session, to_date: Optional[str] = None, company_id: Optional[UUID] = None
+        db: Session,
+        from_date: Optional[str] = None,
+        to_date: Optional[str] = None,
+        company_id: Optional[UUID] = None,
     ) -> Dict[str, Any]:
+        fd = _parse_date(from_date)
         td = _parse_date(to_date)
         ledgers = ReportService._get_ledgers(db, company_id)
         group_map = ReportService._group_map(db)
@@ -256,13 +276,23 @@ class ReportService:
                 if abs(closing) < 0.005:
                     continue
                 assets_total += closing
-                assets.append({"ledger": l.name, "group": ReportService._group_path(l, group_map), "amount": round(closing, 2)})
+                assets.append({
+                    "ledgerId": str(l.id),
+                    "ledger": l.name,
+                    "group": ReportService._group_path(l, group_map),
+                    "amount": round(closing, 2),
+                })
             elif nature == "LIABILITY":
                 amount = -closing  # liabilities carry credit balances
                 if abs(amount) < 0.005:
                     continue
                 liabilities_total += amount
-                liabilities.append({"ledger": l.name, "group": ReportService._group_path(l, group_map), "amount": round(amount, 2)})
+                liabilities.append({
+                    "ledgerId": str(l.id),
+                    "ledger": l.name,
+                    "group": ReportService._group_path(l, group_map),
+                    "amount": round(amount, 2),
+                })
             elif nature == "INCOME":
                 income_total += -mv["net"]
             elif nature == "EXPENSE":
@@ -271,6 +301,7 @@ class ReportService:
         net_profit = income_total - expense_total
         # Current-period profit accrues to the capital (liabilities) side.
         liabilities.append({
+            "ledgerId": "profit-loss",
             "ledger": "Profit & Loss (current period)",
             "group": "Capital Account",
             "amount": round(net_profit, 2),
@@ -279,6 +310,8 @@ class ReportService:
         assets.sort(key=lambda r: r["ledger"])
         liabilities.sort(key=lambda r: r["ledger"])
         return {
+            "fromDate": fd.isoformat() if fd else None,
+            "toDate": td.isoformat() if td else None,
             "asOn": td.isoformat() if td else None,
             "assets": assets,
             "liabilities": liabilities,

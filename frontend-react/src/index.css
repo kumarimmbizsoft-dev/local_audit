@@ -128,3 +128,68 @@ body {
 ::-webkit-scrollbar-thumb:hover {
   background: #b5b1a3 padding-box content-box;
 }
+
+/* Print / PDF Export Styles for Reports & Statements */
+@media print {
+  @page {
+    size: A4 landscape;
+    margin: 10mm 12mm;
+  }
+
+  /* Hide app navigation chrome and controls */
+  aside,
+  header,
+  nav,
+  .no-print,
+  button,
+  .print\\:hidden {
+    display: none !important;
+  }
+
+  body {
+    background: #ffffff !important;
+    color: #111827 !important;
+    font-size: 9.5pt !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  /* Force side-by-side columns during print */
+  .print-side-by-side {
+    display: grid !important;
+    grid-template-columns: 1fr 1fr !important;
+    gap: 16px !important;
+    width: 100% !important;
+  }
+
+  .card-panel {
+    box-shadow: none !important;
+    border: 1px solid #cbd5e1 !important;
+    background: #ffffff !important;
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+  }
+
+  table {
+    width: 100% !important;
+    border-collapse: collapse !important;
+  }
+
+  th {
+    background-color: #f8fafc !important;
+    color: #475569 !important;
+    font-size: 8pt !important;
+    border-bottom: 1px solid #cbd5e1 !important;
+    padding: 6px 8px !important;
+  }
+
+  td {
+    padding: 5px 8px !important;
+    border-bottom: 1px solid #e2e8f0 !important;
+    font-size: 8.5pt !important;
+  }
+
+  .print\\:block {
+    display: block !important;
+  }
+}

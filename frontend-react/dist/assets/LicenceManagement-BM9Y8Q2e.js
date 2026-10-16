@@ -1,1 +1,0 @@
-import{j as e}from"./vendor-react-DAWCluGc.js";function a(){return e.jsxs("div",{className:"p-6 space-y-6",children:[e.jsx("h1",{className:"text-3xl font-bold",children:"Licence & Device Management"}),e.jsx("p",{className:"text-gray-600",children:"Activate licences, manage offline requests, and rehost devices."})]})}export{a as default};

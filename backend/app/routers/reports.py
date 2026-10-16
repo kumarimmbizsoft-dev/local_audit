@@ -23,13 +23,14 @@ def _ok(data, message="Report generated"):
 
 @router.get("/trial-balance")
 def trial_balance(
+    from_date: Optional[str] = Query(None),
     to_date: Optional[str] = Query(None),
     company_id: Optional[UUID] = Depends(get_company_id),
     db: Session = Depends(get_db),
     _user=Depends(get_current_user),
     _=Depends(require_permission(FEATURE_REPORT, "view")),
 ):
-    return _ok(ReportService.trial_balance(db, to_date, company_id), "Trial balance")
+    return _ok(ReportService.trial_balance(db, from_date, to_date, company_id), "Trial balance")
 
 
 @router.get("/profit-loss")
@@ -46,13 +47,14 @@ def profit_loss(
 
 @router.get("/balance-sheet")
 def balance_sheet(
+    from_date: Optional[str] = Query(None),
     to_date: Optional[str] = Query(None),
     company_id: Optional[UUID] = Depends(get_company_id),
     db: Session = Depends(get_db),
     _user=Depends(get_current_user),
     _=Depends(require_permission(FEATURE_REPORT, "view")),
 ):
-    return _ok(ReportService.balance_sheet(db, to_date, company_id), "Balance sheet")
+    return _ok(ReportService.balance_sheet(db, from_date, to_date, company_id), "Balance sheet")
 
 
 @router.get("/cash-book")

@@ -7,8 +7,8 @@ import {
   Wallet,
   BookText,
   Download,
-  CheckCircle2,
-  AlertTriangle,
+  Printer,
+  GripVertical,
 } from "lucide-react";
 import { api, envelopeResult } from "../lib/api";
 import { useCompany } from "../auth/CompanyContext";
@@ -19,7 +19,6 @@ import {
   Panel,
   Button,
   DatePicker,
-  Input,
   TableWrap,
   Th,
   Td,
@@ -30,12 +29,18 @@ import {
   Money,
 } from "../components/ui";
 
-type ReportKey = "trial-balance" | "profit-loss" | "balance-sheet" | "cash-book" | "bank-book" | "day-book";
+type ReportKey =
+  | "trial-balance"
+  | "profit-loss"
+  | "balance-sheet"
+  | "cash-book"
+  | "bank-book"
+  | "day-book";
 
 const REPORTS: { key: ReportKey; label: string; icon: any; range: "asOn" | "period" }[] = [
-  { key: "trial-balance", label: "Trial Balance", icon: Scale, range: "asOn" },
+  { key: "trial-balance", label: "Trial Balance", icon: Scale, range: "period" },
   { key: "profit-loss", label: "Profit & Loss", icon: TrendingUp, range: "period" },
-  { key: "balance-sheet", label: "Balance Sheet", icon: Landmark, range: "asOn" },
+  { key: "balance-sheet", label: "Balance Sheet", icon: Landmark, range: "period" },
   { key: "cash-book", label: "Cash Book", icon: Wallet, range: "period" },
   { key: "bank-book", label: "Bank Book", icon: Landmark, range: "period" },
   { key: "day-book", label: "Day Book", icon: BookText, range: "period" },
@@ -52,14 +57,20 @@ function today(): string {
 
 export function Reports() {
   const loc = useLocation();
-  const { companyId } = useCompany();
-  const [active, setActive] = useState<ReportKey>(((loc.state as any)?.report as ReportKey) || "trial-balance");
+  const { companyId, company } = useCompany();
+  const [active, setActive] = useState<ReportKey>(
+    ((loc.state as any)?.report as ReportKey) || "trial-balance"
+  );
   const [fromDate, setFromDate] = useState(fyStart());
   const [toDate, setToDate] = useState(today());
   const [data, setData] = useState<any>(null);
   const [loading, setLoading] = useState(false);
   const [stmtFor, setStmtFor] = useState<{ id: string; name: string } | null>(null);
   const [stmt, setStmt] = useState<any>(null);
+  const [balanceSheetOrder, setBalanceSheetOrder] = useState<{
+    liabilities?: any[];
+    assets?: any[];
+  }>({});
 
   const def = REPORTS.find((r) => r.key === active)!;
 
@@ -70,9 +81,17 @@ export function Reports() {
         ? `?to_date=${toDate}`
         : `?from_date=${fromDate}&to_date=${toDate}`;
     const r = await api.get(`/reports/${active}${params}`);
-    setData(envelopeResult<any>(r));
+    const res = envelopeResult<any>(r);
+    setData(res);
+    if (active === "balance-sheet" && res) {
+      setBalanceSheetOrder({
+        liabilities: res.liabilities || [],
+        assets: res.assets || [],
+      });
+    }
     setLoading(false);
   }
+
   useEffect(() => {
     run();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -85,33 +104,88 @@ export function Reports() {
     setStmt(envelopeResult<any>(r));
   }
 
+  function handleBalanceSheetReorder(side: "liabilities" | "assets", items: any[]) {
+    setBalanceSheetOrder((prev) => ({
+      ...prev,
+      [side]: items,
+    }));
+  }
+
+  function exportPDF() {
+    window.print();
+  }
+
   return (
     <PageHeader
       title="Reports"
       sub="Financial statements and books — generated live from posted vouchers"
       actions={
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 print:hidden">
           {def.range === "period" && (
-            <DatePicker className="w-[150px]" value={fromDate} onChange={(val) => setFromDate(val)} />
+            <DatePicker className="w-[145px]" value={fromDate} onChange={(val) => setFromDate(val)} />
           )}
-          <span className="text-muted-foreground text-sm">{def.range === "period" ? "to" : "as on"}</span>
-          <DatePicker className="w-[150px]" value={toDate} onChange={(val) => setToDate(val)} />
-          <Button size="sm" variant="outline" onClick={() => exportReport(active, data, def.label)} disabled={!data}>
-            <Download className="h-4 w-4 mr-1.5" />
-            Export
-          </Button>
+          <span className="text-muted-foreground text-sm">
+            {def.range === "period" ? "to" : "as on"}
+          </span>
+          <DatePicker className="w-[145px]" value={toDate} onChange={(val) => setToDate(val)} />
+          <div className="flex items-center gap-1.5 ml-1">
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => exportReport(active, data, def.label, balanceSheetOrder)}
+              disabled={!data}
+              title="Export CSV with preserved side-by-side structure"
+            >
+              <Download className="h-4 w-4 mr-1.5" />
+              CSV
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={exportPDF}
+              disabled={!data}
+              title="Export PDF / Print with preserved UI layout"
+            >
+              <Printer className="h-4 w-4 mr-1.5" />
+              PDF
+            </Button>
+          </div>
         </div>
       }
     >
-      <div className="grid lg:grid-cols-[200px_1fr] gap-4 items-start">
-        <div className="card-panel p-2">
+      {/* Print-only executive report header */}
+      <div className="hidden print:block mb-5 pb-3 border-b border-border">
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-xl font-bold tracking-tight text-foreground">
+              {company?.company_name || "CAAI DEMO SERVICES PVT LTD"}
+            </h1>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              ImmBiz Books · Financial Statements
+            </p>
+          </div>
+          <div className="text-right">
+            <div className="text-base font-semibold">{def.label.toUpperCase()}</div>
+            <div className="text-xs text-muted-foreground mt-0.5">
+              {def.range === "period"
+                ? `${fmtDate(fromDate)} to ${fmtDate(toDate)}`
+                : `As on ${fmtDate(toDate)}`}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div className="grid lg:grid-cols-[200px_1fr] gap-4 items-start report-print-container">
+        <div className="card-panel p-2 print:hidden">
           {REPORTS.map((r) => (
             <button
               key={r.key}
               onClick={() => setActive(r.key)}
               className={
                 "w-full flex items-center gap-2.5 rounded-[5px] px-3 py-2 text-[13px] text-left transition-colors " +
-                (active === r.key ? "bg-[var(--teal-soft)] text-[var(--teal)] font-semibold" : "hover:bg-muted")
+                (active === r.key
+                  ? "bg-[var(--teal-soft)] text-[var(--teal)] font-semibold"
+                  : "hover:bg-muted")
               }
             >
               <r.icon className="h-4 w-4 shrink-0" />
@@ -120,15 +194,20 @@ export function Reports() {
           ))}
         </div>
 
-        <div>
+        <div className="report-print-area">
           {loading || !data ? (
             <Spinner />
           ) : active === "trial-balance" ? (
             <TrialBalanceView data={data} onLedger={openStatement} />
           ) : active === "profit-loss" ? (
-            <ProfitLossView data={data} />
+            <ProfitLossView data={data} onLedger={openStatement} />
           ) : active === "balance-sheet" ? (
-            <BalanceSheetView data={data} />
+            <BalanceSheetView
+              data={data}
+              onLedger={openStatement}
+              onSelectReport={setActive}
+              onReorder={handleBalanceSheetReorder}
+            />
           ) : active === "day-book" ? (
             <DayBookView data={data} />
           ) : (
@@ -142,16 +221,29 @@ export function Reports() {
         onClose={() => setStmtFor(null)}
         wide
         title={stmtFor ? `Ledger — ${stmtFor.name}` : ""}
-        desc="Running balance from posted vouchers"
+        desc={`Transactions from posted vouchers · ${fmtDate(fromDate)} to ${fmtDate(toDate)}`}
       >
         {!stmt ? (
           <Spinner />
         ) : (
           <>
-            <div className="grid grid-cols-3 gap-3 mb-4">
+            <div className="grid grid-cols-4 gap-3 mb-4">
               <Stat l="Opening" v={stmt.openingBalance} />
+              <Stat
+                l="Total Debits"
+                v={(stmt.lines || []).reduce(
+                  (s: number, l: any) => s + (Number(l.debit) || 0),
+                  0
+                )}
+              />
+              <Stat
+                l="Total Credits"
+                v={(stmt.lines || []).reduce(
+                  (s: number, l: any) => s + (Number(l.credit) || 0),
+                  0
+                )}
+              />
               <Stat l="Closing" v={stmt.closingBalance} />
-              <Stat l="Entries" v={stmt.lines?.length || 0} plain />
             </div>
             <TableWrap>
               <thead>
@@ -165,15 +257,21 @@ export function Reports() {
                 </tr>
               </thead>
               <tbody>
-                {(stmt.lines || []).length === 0 && <EmptyRow colSpan={6} text="No transactions in this period." />}
+                {(stmt.lines || []).length === 0 && (
+                  <EmptyRow colSpan={6} text="No transactions in this period." />
+                )}
                 {(stmt.lines || []).map((l: any, i: number) => (
                   <tr key={i}>
-                    <Td className="mono">{l.voucherNo}</Td>
+                    <Td className="mono font-medium text-[var(--teal)]">{l.voucherNo}</Td>
                     <Td>{fmtDate(l.voucherDate)}</Td>
-                    <Td className="max-w-[240px] truncate">{l.narration || "—"}</Td>
+                    <Td className="max-w-[240px] truncate">
+                      <span title={l.narration || undefined}>{l.narration || "—"}</span>
+                    </Td>
                     <Td right>{l.debit ? <Money v={l.debit} /> : "—"}</Td>
                     <Td right>{l.credit ? <Money v={l.credit} /> : "—"}</Td>
-                    <Td right className="fig">{money(l.balance)}</Td>
+                    <Td right className="fig font-medium">
+                      {money(l.balance)}
+                    </Td>
                   </tr>
                 ))}
               </tbody>
@@ -194,13 +292,30 @@ function Stat({ l, v, plain }: { l: string; v: number; plain?: boolean }) {
   );
 }
 
-function TrialBalanceView({ data, onLedger }: { data: any; onLedger: (id: string, name: string) => void }) {
+function TrialBalanceView({
+  data,
+  onLedger,
+}: {
+  data: any;
+  onLedger: (id: string, name: string) => void;
+}) {
+  const periodTitle =
+    data.fromDate && data.toDate
+      ? ` · ${fmtDate(data.fromDate)} – ${fmtDate(data.toDate)}`
+      : data.asOn
+      ? ` as on ${fmtDate(data.asOn)}`
+      : "";
+
   return (
-    <Panel pad={false} title={`Trial Balance${data.asOn ? ` as on ${fmtDate(data.asOn)}` : ""}`} right={
-      <Badge tone={data.balanced ? "ok" : "bad"}>
-        {data.balanced ? "Balanced" : "Out of balance"}
-      </Badge>
-    }>
+    <Panel
+      pad={false}
+      title={`Trial Balance${periodTitle}`}
+      right={
+        <Badge tone={data.balanced ? "ok" : "bad"}>
+          {data.balanced ? "Balanced" : "Out of balance"}
+        </Badge>
+      }
+    >
       <TableWrap>
         <thead>
           <tr>
@@ -211,10 +326,17 @@ function TrialBalanceView({ data, onLedger }: { data: any; onLedger: (id: string
           </tr>
         </thead>
         <tbody>
-          {data.rows.length === 0 && <EmptyRow colSpan={4} text="No balances yet — post some vouchers." />}
+          {data.rows.length === 0 && (
+            <EmptyRow colSpan={4} text="No balances yet — post some vouchers." />
+          )}
           {data.rows.map((r: any) => (
-            <tr key={r.ledgerId} className="hover:bg-muted/40 cursor-pointer" onClick={() => onLedger(r.ledgerId, r.ledger)}>
-              <Td className="font-medium">{r.ledger}</Td>
+            <tr
+              key={r.ledgerId}
+              className="hover:bg-muted/40 cursor-pointer transition-colors"
+              onClick={() => onLedger(r.ledgerId, r.ledger)}
+              title="Click to view ledger transactions"
+            >
+              <Td className="font-medium text-foreground hover:text-[var(--teal)]">{r.ledger}</Td>
               <Td className="text-muted-foreground text-[12px]">{r.group}</Td>
               <Td right>{r.debit ? <Money v={r.debit} /> : "—"}</Td>
               <Td right>{r.credit ? <Money v={r.credit} /> : "—"}</Td>
@@ -223,7 +345,12 @@ function TrialBalanceView({ data, onLedger }: { data: any; onLedger: (id: string
         </tbody>
         <tfoot>
           <tr className="ledger-rule-strong bg-muted/40 font-semibold">
-            <td colSpan={2} className="px-4 py-2.5 text-right text-[11px] uppercase tracking-wider text-muted-foreground">Total</td>
+            <td
+              colSpan={2}
+              className="px-4 py-2.5 text-right text-[11px] uppercase tracking-wider text-muted-foreground"
+            >
+              Total
+            </td>
             <td className="px-4 py-2.5 text-right fig">{money(data.totalDebit)}</td>
             <td className="px-4 py-2.5 text-right fig">{money(data.totalCredit)}</td>
           </tr>
@@ -233,108 +360,377 @@ function TrialBalanceView({ data, onLedger }: { data: any; onLedger: (id: string
   );
 }
 
-function ProfitLossView({ data }: { data: any }) {
+function ProfitLossView({
+  data,
+  onLedger,
+}: {
+  data: any;
+  onLedger: (id: string, name: string) => void;
+}) {
+  // Net profit is placed on the expenses side only; Net loss placed on income side only.
+  const expenseRows = useMemo(() => {
+    const list = [...(data.expense || [])];
+    if (data.isProfit) {
+      list.push({
+        ledgerId: "",
+        ledger: "Net Profit",
+        group: "Transferred to Capital Account",
+        amount: data.netProfit,
+        isNet: true,
+      });
+    }
+    return list;
+  }, [data.expense, data.isProfit, data.netProfit]);
+
+  const incomeRows = useMemo(() => {
+    const list = [...(data.income || [])];
+    if (!data.isProfit && Math.abs(data.netProfit) > 0.005) {
+      list.push({
+        ledgerId: "",
+        ledger: "Net Loss",
+        group: "Transferred to Capital Account",
+        amount: Math.abs(data.netProfit),
+        isNet: true,
+      });
+    }
+    return list;
+  }, [data.income, data.isProfit, data.netProfit]);
+
+  // Both sides balance out to the balanced total in standard financial reporting
+  const balancedTotal = Math.max(data.incomeTotal || 0, data.expenseTotal || 0);
+
   return (
-    <div className="grid md:grid-cols-2 gap-4">
-      <Panel pad={false} title="Expenses">
-        <SideTable rows={data.expense} total={data.expenseTotal} totalLabel="Total expenses" />
-      </Panel>
-      <Panel pad={false} title="Income">
-        <SideTable rows={data.income} total={data.incomeTotal} totalLabel="Total income" />
-      </Panel>
-      <div className="md:col-span-2">
-        <div className="card-panel px-5 py-4 flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            {data.isProfit ? (
-              <CheckCircle2 className="h-5 w-5" style={{ color: "var(--teal)" }} />
-            ) : (
-              <AlertTriangle className="h-5 w-5 text-[var(--red)]" />
-            )}
-            <span className="font-semibold">{data.isProfit ? "Net Profit" : "Net Loss"}</span>
-            <span className="text-muted-foreground text-[12px]">
-              {data.fromDate ? `${fmtDate(data.fromDate)} – ${fmtDate(data.toDate)}` : ""}
-            </span>
-          </div>
-          <span className={"fig text-xl " + (data.isProfit ? "" : "text-[var(--red)]")}>{money(Math.abs(data.netProfit))}</span>
+    <div className="space-y-4">
+      <div className="grid md:grid-cols-2 print:grid-cols-2 print-side-by-side gap-4">
+        <Panel pad={false} title="Expenses">
+          <TableWrap>
+            <thead>
+              <tr>
+                <Th>Ledger</Th>
+                <Th right>Amount</Th>
+              </tr>
+            </thead>
+            <tbody>
+              {expenseRows.length === 0 && (
+                <EmptyRow colSpan={2} text="No expenses in this period." />
+              )}
+              {expenseRows.map((r: any, i: number) => (
+                <tr
+                  key={r.ledgerId || r.ledger + i}
+                  className={
+                    r.isNet
+                      ? "bg-emerald-50/70 dark:bg-emerald-950/20 font-semibold text-emerald-900 dark:text-emerald-300"
+                      : "hover:bg-muted/40 cursor-pointer transition-colors"
+                  }
+                  onClick={() => {
+                    if (!r.isNet && r.ledgerId) onLedger(r.ledgerId, r.ledger);
+                  }}
+                  title={r.isNet ? "Net Profit" : "Click to view ledger transactions"}
+                >
+                  <Td>
+                    <div
+                      className={
+                        "font-medium " +
+                        (r.isNet
+                          ? "font-semibold text-emerald-900 dark:text-emerald-300"
+                          : "hover:text-[var(--teal)]")
+                      }
+                    >
+                      {r.ledger}
+                    </div>
+                    <div className="text-[11px] text-muted-foreground">{r.group}</div>
+                  </Td>
+                  <Td right className="fig font-semibold">
+                    {money(r.amount)}
+                  </Td>
+                </tr>
+              ))}
+            </tbody>
+          </TableWrap>
+        </Panel>
+
+        <Panel pad={false} title="Income">
+          <TableWrap>
+            <thead>
+              <tr>
+                <Th>Ledger</Th>
+                <Th right>Amount</Th>
+              </tr>
+            </thead>
+            <tbody>
+              {incomeRows.length === 0 && (
+                <EmptyRow colSpan={2} text="No income in this period." />
+              )}
+              {incomeRows.map((r: any, i: number) => (
+                <tr
+                  key={r.ledgerId || r.ledger + i}
+                  className={
+                    r.isNet
+                      ? "bg-rose-50/70 dark:bg-rose-950/20 font-semibold text-rose-900 dark:text-rose-300"
+                      : "hover:bg-muted/40 cursor-pointer transition-colors"
+                  }
+                  onClick={() => {
+                    if (!r.isNet && r.ledgerId) onLedger(r.ledgerId, r.ledger);
+                  }}
+                  title={r.isNet ? "Net Loss" : "Click to view ledger transactions"}
+                >
+                  <Td>
+                    <div
+                      className={
+                        "font-medium " +
+                        (r.isNet
+                          ? "font-semibold text-rose-900 dark:text-rose-300"
+                          : "hover:text-[var(--teal)]")
+                      }
+                    >
+                      {r.ledger}
+                    </div>
+                    <div className="text-[11px] text-muted-foreground">{r.group}</div>
+                  </Td>
+                  <Td right className="fig font-semibold">
+                    {money(r.amount)}
+                  </Td>
+                </tr>
+              ))}
+            </tbody>
+          </TableWrap>
+        </Panel>
+      </div>
+
+      {/* Single horizontal row at the bottom displaying Total Expenses and Total Income side by side */}
+      <div className="grid md:grid-cols-2 print:grid-cols-2 print-side-by-side gap-4">
+        <div className="card-panel px-5 py-3.5 flex items-center justify-between">
+          <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+            Total Expenses
+          </span>
+          <span className="fig text-base font-semibold">{money(balancedTotal)}</span>
+        </div>
+        <div className="card-panel px-5 py-3.5 flex items-center justify-between">
+          <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+            Total Income
+          </span>
+          <span className="fig text-base font-semibold">{money(balancedTotal)}</span>
         </div>
       </div>
     </div>
   );
 }
 
-function BalanceSheetView({ data }: { data: any }) {
+function BalanceSheetView({
+  data,
+  onLedger,
+  onSelectReport,
+  onReorder,
+}: {
+  data: any;
+  onLedger: (id: string, name: string) => void;
+  onSelectReport: (key: ReportKey) => void;
+  onReorder: (side: "liabilities" | "assets", items: any[]) => void;
+}) {
+  const [liabilities, setLiabilities] = useState<any[]>(data.liabilities || []);
+  const [assets, setAssets] = useState<any[]>(data.assets || []);
+
+  useEffect(() => {
+    setLiabilities(data.liabilities || []);
+    setAssets(data.assets || []);
+  }, [data]);
+
+  const [dragged, setDragged] = useState<{
+    side: "liabilities" | "assets";
+    index: number;
+  } | null>(null);
+  const [overTarget, setOverTarget] = useState<{
+    side: "liabilities" | "assets";
+    index: number;
+  } | null>(null);
+
+  function handleDragStart(side: "liabilities" | "assets", index: number, e: React.DragEvent) {
+    setDragged({ side, index });
+    e.dataTransfer.effectAllowed = "move";
+    e.dataTransfer.setData("text/plain", `${side}:${index}`);
+  }
+
+  function handleDragOver(side: "liabilities" | "assets", index: number, e: React.DragEvent) {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "move";
+    if (!overTarget || overTarget.side !== side || overTarget.index !== index) {
+      setOverTarget({ side, index });
+    }
+  }
+
+  function handleDrop(side: "liabilities" | "assets", targetIndex: number, e: React.DragEvent) {
+    e.preventDefault();
+    if (!dragged || dragged.side !== side) {
+      setDragged(null);
+      setOverTarget(null);
+      return;
+    }
+    const fromIndex = dragged.index;
+    if (fromIndex === targetIndex) {
+      setDragged(null);
+      setOverTarget(null);
+      return;
+    }
+
+    const list = side === "liabilities" ? [...liabilities] : [...assets];
+    const [moved] = list.splice(fromIndex, 1);
+    list.splice(targetIndex, 0, moved);
+
+    if (side === "liabilities") {
+      setLiabilities(list);
+      onReorder("liabilities", list);
+    } else {
+      setAssets(list);
+      onReorder("assets", list);
+    }
+    setDragged(null);
+    setOverTarget(null);
+  }
+
+  function handleDragEnd() {
+    setDragged(null);
+    setOverTarget(null);
+  }
+
+  function renderTable(side: "liabilities" | "assets", items: any[]) {
+    return (
+      <TableWrap>
+        <thead>
+          <tr>
+            <Th className="w-8 pl-3 pr-0 print:hidden"></Th>
+            <Th>Ledger</Th>
+            <Th right>Amount</Th>
+          </tr>
+        </thead>
+        <tbody>
+          {(!items || items.length === 0) && (
+            <EmptyRow colSpan={3} text="Nothing here yet." />
+          )}
+          {(items || []).map((r: any, i: number) => {
+            const isOver = overTarget?.side === side && overTarget?.index === i;
+            const isDragging = dragged?.side === side && dragged?.index === i;
+            return (
+              <tr
+                key={r.ledgerId || r.ledger + i}
+                draggable
+                onDragStart={(e) => handleDragStart(side, i, e)}
+                onDragOver={(e) => handleDragOver(side, i, e)}
+                onDrop={(e) => handleDrop(side, i, e)}
+                onDragEnd={handleDragEnd}
+                className={
+                  "group cursor-pointer transition-colors " +
+                  (isDragging ? "opacity-40 bg-muted/60 " : "hover:bg-muted/40 ") +
+                  (isOver ? "border-t-2 border-[var(--teal)] bg-[var(--teal-soft)]/20 " : "")
+                }
+                onClick={() => {
+                  if (r.ledgerId === "profit-loss") {
+                    onSelectReport("profit-loss");
+                  } else if (r.ledgerId) {
+                    onLedger(r.ledgerId, r.ledger);
+                  }
+                }}
+                title={
+                  r.ledgerId === "profit-loss"
+                    ? "Click to view Profit & Loss statement · Drag to reorder"
+                    : "Click to view ledger transactions · Drag to reorder"
+                }
+              >
+                <td className="w-8 pl-3 pr-0 py-2.5 text-muted-foreground/30 group-hover:text-muted-foreground cursor-grab active:cursor-grabbing print:hidden">
+                  <GripVertical className="h-3.5 w-3.5" />
+                </td>
+                <Td>
+                  <div className="font-medium text-foreground group-hover:text-[var(--teal)] transition-colors">
+                    {r.ledger}
+                  </div>
+                  <div className="text-[11px] text-muted-foreground">{r.group}</div>
+                </Td>
+                <Td right className="fig font-medium">
+                  {money(r.amount)}
+                </Td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </TableWrap>
+    );
+  }
+
   return (
-    <div className="grid md:grid-cols-2 gap-4">
-      <Panel pad={false} title="Liabilities & Capital" right={<span className="fig text-sm">{money(data.liabilitiesTotal)}</span>}>
-        <SideTable rows={data.liabilities} total={data.liabilitiesTotal} totalLabel="Total" />
+    <div className="grid md:grid-cols-2 print:grid-cols-2 print-side-by-side gap-4">
+      <Panel
+        pad={false}
+        title="Liabilities & Capital"
+        right={<span className="fig text-sm font-semibold">{money(data.liabilitiesTotal)}</span>}
+      >
+        {renderTable("liabilities", liabilities)}
       </Panel>
-      <Panel pad={false} title="Assets" right={<span className="fig text-sm">{money(data.assetsTotal)}</span>}>
-        <SideTable rows={data.assets} total={data.assetsTotal} totalLabel="Total" />
+      <Panel
+        pad={false}
+        title="Assets"
+        right={<span className="fig text-sm font-semibold">{money(data.assetsTotal)}</span>}
+      >
+        {renderTable("assets", assets)}
       </Panel>
       <div className="md:col-span-2">
         <div className="card-panel px-5 py-3 flex items-center justify-between text-[13px]">
-          <span className="text-muted-foreground">{data.asOn ? `As on ${fmtDate(data.asOn)}` : ""}</span>
-          <Badge tone={data.balanced ? "ok" : "bad"}>{data.balanced ? "Balanced" : "Out of balance"}</Badge>
+          <span className="text-muted-foreground">
+            {data.fromDate && data.toDate
+              ? `Period: ${fmtDate(data.fromDate)} – ${fmtDate(data.toDate)}`
+              : data.asOn
+              ? `As on ${fmtDate(data.asOn)}`
+              : ""}
+          </span>
+          <Badge tone={data.balanced ? "ok" : "bad"}>
+            {data.balanced ? "Balanced" : "Out of balance"}
+          </Badge>
         </div>
       </div>
     </div>
   );
 }
 
-function SideTable({ rows, total, totalLabel }: { rows: any[]; total: number; totalLabel: string }) {
-  return (
-    <TableWrap>
-      <thead>
-        <tr>
-          <Th>Ledger</Th>
-          <Th right>Amount</Th>
-        </tr>
-      </thead>
-      <tbody>
-        {(!rows || rows.length === 0) && <EmptyRow colSpan={2} text="Nothing here yet." />}
-        {(rows || []).map((r: any, i: number) => (
-          <tr key={i}>
-            <Td>
-              <div className="font-medium">{r.ledger}</div>
-              <div className="text-[11px] text-muted-foreground">{r.group}</div>
-            </Td>
-            <Td right className="fig">{money(r.amount)}</Td>
-          </tr>
-        ))}
-      </tbody>
-      <tfoot>
-        <tr className="ledger-rule-strong bg-muted/40 font-semibold">
-          <td className="px-4 py-2.5 text-right text-[11px] uppercase tracking-wider text-muted-foreground">{totalLabel}</td>
-          <td className="px-4 py-2.5 text-right fig">{money(total)}</td>
-        </tr>
-      </tfoot>
-    </TableWrap>
-  );
-}
-
-function CashBankView({ data, label, onLedger }: { data: any; label: string; onLedger: (id: string, name: string) => void }) {
+function CashBankView({
+  data,
+  label,
+  onLedger,
+}: {
+  data: any;
+  label: string;
+  onLedger: (id: string, name: string) => void;
+}) {
   const accounts = data.accounts || [];
   return (
     <div className="space-y-4">
       <div className="card-panel px-5 py-3 flex items-center justify-between text-[13px]">
         <span className="font-semibold">{label}</span>
         <span className="text-muted-foreground">
-          Opening {money(data.openingTotal)} · Closing <span className="fig">{money(data.closingTotal)}</span>
+          Opening {money(data.openingTotal)} · Closing{" "}
+          <span className="fig">{money(data.closingTotal)}</span>
         </span>
       </div>
       {accounts.length === 0 && (
-        <div className="card-panel p-8 text-center text-muted-foreground text-sm">No matching accounts found.</div>
+        <div className="card-panel p-8 text-center text-muted-foreground text-sm">
+          No matching accounts found.
+        </div>
       )}
       {accounts.map((acc: any) => (
         <Panel
           key={acc.ledgerId}
           pad={false}
           title={
-            <button className="text-[var(--teal)] hover:underline" onClick={() => onLedger(acc.ledgerId, acc.ledger)}>
+            <button
+              className="text-[var(--teal)] hover:underline font-semibold"
+              onClick={() => onLedger(acc.ledgerId, acc.ledger)}
+              title="Click to view ledger transactions"
+            >
               {acc.ledger}
             </button>
           }
-          right={<span className="text-[12px] text-muted-foreground">Closing <span className="fig">{money(acc.closingBalance)}</span></span>}
+          right={
+            <span className="text-[12px] text-muted-foreground">
+              Closing <span className="fig font-semibold">{money(acc.closingBalance)}</span>
+            </span>
+          }
         >
           <TableWrap>
             <thead>
@@ -349,18 +745,27 @@ function CashBankView({ data, label, onLedger }: { data: any; label: string; onL
             </thead>
             <tbody>
               <tr className="bg-muted/20">
-                <Td className="text-muted-foreground text-[12px]" >Opening balance</Td>
-                <Td /><Td /><Td /><Td />
-                <Td right className="fig">{money(acc.openingBalance)}</Td>
+                <Td className="text-muted-foreground text-[12px] font-medium">Opening balance</Td>
+                <Td />
+                <Td />
+                <Td />
+                <Td />
+                <Td right className="fig">
+                  {money(acc.openingBalance)}
+                </Td>
               </tr>
               {(acc.lines || []).map((l: any, i: number) => (
                 <tr key={i}>
-                  <Td className="mono">{l.voucherNo}</Td>
+                  <Td className="mono font-medium text-[var(--teal)]">{l.voucherNo}</Td>
                   <Td>{fmtDate(l.voucherDate)}</Td>
-                  <Td className="max-w-[220px] truncate">{l.narration || "—"}</Td>
+                  <Td className="max-w-[220px] truncate">
+                    <span title={l.narration || undefined}>{l.narration || "—"}</span>
+                  </Td>
                   <Td right>{l.debit ? <Money v={l.debit} /> : "—"}</Td>
                   <Td right>{l.credit ? <Money v={l.credit} /> : "—"}</Td>
-                  <Td right className="fig">{money(l.balance)}</Td>
+                  <Td right className="fig">
+                    {money(l.balance)}
+                  </Td>
                 </tr>
               ))}
             </tbody>
@@ -373,7 +778,13 @@ function CashBankView({ data, label, onLedger }: { data: any; label: string; onL
 
 function DayBookView({ data }: { data: any }) {
   return (
-    <Panel pad={false} title={`Day Book${data.fromDate ? ` · ${fmtDate(data.fromDate)} – ${fmtDate(data.toDate)}` : ""}`} right={<span className="fig text-sm">{money(data.total)}</span>}>
+    <Panel
+      pad={false}
+      title={`Day Book${
+        data.fromDate ? ` · ${fmtDate(data.fromDate)} – ${fmtDate(data.toDate)}` : ""
+      }`}
+      right={<span className="fig text-sm font-semibold">{money(data.total)}</span>}
+    >
       <TableWrap>
         <thead>
           <tr>
@@ -389,13 +800,19 @@ function DayBookView({ data }: { data: any }) {
           {data.rows.length === 0 && <EmptyRow colSpan={6} text="No vouchers in this period." />}
           {data.rows.map((r: any) => (
             <tr key={r.id}>
-              <Td className="mono">{r.voucherNo}</Td>
+              <Td className="mono font-medium text-[var(--teal)]">{r.voucherNo}</Td>
               <Td>{r.voucherType}</Td>
               <Td>{fmtDate(r.voucherDate)}</Td>
-              <Td className="max-w-[260px] truncate">{r.narration || "—"}</Td>
-              <Td right><Money v={r.amount} /></Td>
+              <Td className="max-w-[260px] truncate">
+                <span title={r.narration || undefined}>{r.narration || "—"}</span>
+              </Td>
+              <Td right>
+                <Money v={r.amount} />
+              </Td>
               <Td>
-                <Badge tone={r.status === "POSTED" ? "ok" : r.status === "DRAFT" ? "warn" : "bad"}>{r.status}</Badge>
+                <Badge tone={r.status === "POSTED" ? "ok" : r.status === "DRAFT" ? "warn" : "bad"}>
+                  {r.status}
+                </Badge>
               </Td>
             </tr>
           ))}
@@ -405,32 +822,89 @@ function DayBookView({ data }: { data: any }) {
   );
 }
 
-function exportReport(key: ReportKey, data: any, label: string) {
+function exportReport(
+  key: ReportKey,
+  data: any,
+  label: string,
+  balanceSheetOrder?: { liabilities?: any[]; assets?: any[] }
+) {
   if (!data) return;
   const file = `${label.toLowerCase().replace(/\s+/g, "-")}.csv`;
+
   if (key === "trial-balance") {
-    downloadCSV(file, ["Ledger", "Group", "Debit", "Credit"], data.rows.map((r: any) => [r.ledger, r.group, r.debit, r.credit]));
+    // Preserve Trial Balance structure
+    const rows = [
+      ...data.rows.map((r: any) => [r.ledger, r.group, r.debit || "", r.credit || ""]),
+      ["TOTAL", "", data.totalDebit, data.totalCredit],
+    ];
+    downloadCSV(file, ["LEDGER", "GROUP", "DEBIT", "CREDIT"], rows);
   } else if (key === "profit-loss") {
-    const rows = [
-      ...data.expense.map((r: any) => ["Expense", r.ledger, r.amount]),
-      ...data.income.map((r: any) => ["Income", r.ledger, r.amount]),
-      [data.isProfit ? "Net Profit" : "Net Loss", "", data.netProfit],
-    ];
-    downloadCSV(file, ["Section", "Ledger", "Amount"], rows);
+    // Preserve P&L side-by-side structure with Net profit on expenses side / Net loss on income side
+    // and horizontal side-by-side total row at the bottom
+    const expRows = [...(data.expense || [])];
+    if (data.isProfit) {
+      expRows.push({ ledger: "Net Profit", group: "Transferred to Capital Account", amount: data.netProfit });
+    }
+    const incRows = [...(data.income || [])];
+    if (!data.isProfit && Math.abs(data.netProfit) > 0.005) {
+      incRows.push({ ledger: "Net Loss", group: "Transferred to Capital Account", amount: Math.abs(data.netProfit) });
+    }
+    const maxLen = Math.max(expRows.length, incRows.length);
+    const rows: any[][] = [];
+    for (let i = 0; i < maxLen; i++) {
+      const e = expRows[i];
+      const inc = incRows[i];
+      rows.push([
+        e ? e.ledger : "",
+        e ? e.amount : "",
+        "",
+        inc ? inc.ledger : "",
+        inc ? inc.amount : "",
+      ]);
+    }
+    const balancedTotal = Math.max(data.incomeTotal || 0, data.expenseTotal || 0);
+    rows.push(["TOTAL EXPENSES", balancedTotal, "", "TOTAL INCOME", balancedTotal]);
+    downloadCSV(file, ["EXPENSES", "AMOUNT", "", "INCOME", "AMOUNT"], rows);
   } else if (key === "balance-sheet") {
-    const rows = [
-      ...data.liabilities.map((r: any) => ["Liabilities", r.ledger, r.amount]),
-      ...data.assets.map((r: any) => ["Assets", r.ledger, r.amount]),
-    ];
-    downloadCSV(file, ["Section", "Ledger", "Amount"], rows);
+    // Preserve side-by-side column arrangements and user's custom drag-and-drop order
+    const liabList = balanceSheetOrder?.liabilities || data.liabilities || [];
+    const asstList = balanceSheetOrder?.assets || data.assets || [];
+    const maxLen = Math.max(liabList.length, asstList.length);
+    const rows: any[][] = [];
+    for (let i = 0; i < maxLen; i++) {
+      const l = liabList[i];
+      const a = asstList[i];
+      rows.push([
+        l ? l.ledger : "",
+        l ? l.amount : "",
+        "",
+        a ? a.ledger : "",
+        a ? a.amount : "",
+      ]);
+    }
+    downloadCSV(file, ["LIABILITIES & CAPITAL", "AMOUNT", "", "ASSETS", "AMOUNT"], rows);
   } else if (key === "day-book") {
-    downloadCSV(file, ["Voucher", "Type", "Date", "Narration", "Amount", "Status"], data.rows.map((r: any) => [r.voucherNo, r.voucherType, r.voucherDate, r.narration, r.amount, r.status]));
+    downloadCSV(
+      file,
+      ["VOUCHER", "TYPE", "DATE", "NARRATION", "AMOUNT", "STATUS"],
+      data.rows.map((r: any) => [
+        r.voucherNo,
+        r.voucherType,
+        r.voucherDate,
+        r.narration,
+        r.amount,
+        r.status,
+      ])
+    );
   } else {
     const rows: any[] = [];
     (data.accounts || []).forEach((acc: any) => {
-      rows.push([acc.ledger, "Opening", "", "", "", acc.openingBalance]);
-      (acc.lines || []).forEach((l: any) => rows.push([acc.ledger, l.voucherNo, l.voucherDate, l.debit, l.credit, l.balance]));
+      rows.push([acc.ledger, "Opening balance", "", "", "", acc.openingBalance]);
+      (acc.lines || []).forEach((l: any) =>
+        rows.push([acc.ledger, l.voucherNo, l.voucherDate, l.debit, l.credit, l.balance])
+      );
+      rows.push([acc.ledger, "Closing balance", "", "", "", acc.closingBalance]);
     });
-    downloadCSV(file, ["Account", "Voucher", "Date", "Debit", "Credit", "Balance"], rows);
+    downloadCSV(file, ["ACCOUNT", "VOUCHER", "DATE", "DEBIT", "CREDIT", "BALANCE"], rows);
   }
 }

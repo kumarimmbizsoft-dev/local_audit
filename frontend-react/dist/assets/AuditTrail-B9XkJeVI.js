@@ -1,0 +1,1 @@
+import{j as s}from"./vendor-react-DLUVoET_.js";function a(){return s.jsxs("div",{className:"p-6 space-y-6",children:[s.jsx("h1",{className:"text-3xl font-bold",children:"Immutable Audit Trail"}),s.jsx("p",{className:"text-gray-600",children:"View detailed system logs and administrative actions."})]})}export{a as default};

@@ -506,8 +506,8 @@ class DashboardService:
 
         # 7. GST Setup
         try:
-            gst_rate_count = cls._get_static_count(db, GstRate, "gst_rate")
-            hsn_count = cls._get_static_count(db, HsnCode, "hsn_code")
+            gst_rate_count = DashboardService._get_static_count(db, GstRate, "gst_rate")
+            hsn_count = DashboardService._get_static_count(db, HsnCode, "hsn_code")
             gst_configured = gst_rate_count > 0 and hsn_count > 0
         except Exception as e:
             logger.warning("Error fetching gst setup: %s", e)
@@ -533,7 +533,7 @@ class DashboardService:
 
         # 9. Units
         try:
-            units_count = cls._get_static_count(db, UnitMaster, "units")
+            units_count = DashboardService._get_static_count(db, UnitMaster, "units")
         except Exception as e:
             logger.warning("Error fetching units: %s", e)
             units_count = 0
@@ -781,43 +781,19 @@ class DashboardService:
         cash_bank_total = bank_total + cash_total
 
         start_date, end_date = _get_period_date_range(period)
-
-        amount_expr = func.coalesce(VoucherHeader.total_debit, VoucherHeader.total_credit, 0)
-        sales_cond = or_(
-            VoucherHeader.voucher_type == "SALES",
-            VoucherType.base_voucher_type == "SALES",
+        fd_str = start_date.isoformat() if start_date else None
+        td_str = end_date.isoformat() if end_date else None
+        from app.services.report_service import ReportService
+        pnl = ReportService.profit_and_loss(
+            db,
+            from_date=fd_str,
+            to_date=td_str,
+            company_id=company_id,
         )
-        pur_cond = or_(
-            VoucherHeader.voucher_type == "PURCHASE",
-            VoucherType.base_voucher_type == "PURCHASE",
-        )
-
-        financial_q = (
-            db.query(
-                func.coalesce(func.sum(case((sales_cond, amount_expr), else_=0)), 0),
-                func.coalesce(func.sum(case((pur_cond, amount_expr), else_=0)), 0),
-            )
-            .outerjoin(VoucherType, VoucherType.id == VoucherHeader.voucher_type_id)
-            .filter(
-                or_(sales_cond, pur_cond),
-                VoucherHeader.voucher_status == "POSTED",
-                VoucherHeader.active == "Y",
-            )
-        )
-        if company_id:
-            financial_q = financial_q.filter(or_(VoucherHeader.company_id == company_id, VoucherHeader.company_id.is_(None)))
-        if start_date:
-            financial_q = financial_q.filter(VoucherHeader.voucher_date >= start_date)
-        if end_date:
-            financial_q = financial_q.filter(VoucherHeader.voucher_date <= end_date)
-
-        rev_val, exp_val = financial_q.one()
-        revenue_total = _to_float(rev_val)
-        expenses_total = _to_float(exp_val)
-
-        net_profit = revenue_total - expenses_total
+        revenue_total = _to_float(pnl.get("incomeTotal", 0.0))
+        expenses_total = _to_float(pnl.get("expenseTotal", 0.0))
+        net_profit = _to_float(pnl.get("netProfit", 0.0))
         margin_pct = round((net_profit / revenue_total * 100), 1) if revenue_total > 0 else 0.0
-
         # Calculate comparative period numbers if compare parameter is given
         comp_start, comp_end = _get_compare_date_range(period, compare)
         compare_revenue = 0.0
@@ -826,29 +802,16 @@ class DashboardService:
         revenue_growth_pct = 0.0
         expenses_growth_pct = 0.0
         profit_growth_pct = 0.0
-
         if comp_start and comp_end:
-            comp_q = (
-                db.query(
-                    func.coalesce(func.sum(case((sales_cond, amount_expr), else_=0)), 0),
-                    func.coalesce(func.sum(case((pur_cond, amount_expr), else_=0)), 0),
-                )
-                .outerjoin(VoucherType, VoucherType.id == VoucherHeader.voucher_type_id)
-                .filter(
-                    or_(sales_cond, pur_cond),
-                    VoucherHeader.voucher_status == "POSTED",
-                    VoucherHeader.active == "Y",
-                    VoucherHeader.voucher_date >= comp_start,
-                    VoucherHeader.voucher_date <= comp_end,
-                )
+            comp_pnl = ReportService.profit_and_loss(
+                db,
+                from_date=comp_start.isoformat(),
+                to_date=comp_end.isoformat(),
+                company_id=company_id,
             )
-            if company_id:
-                comp_q = comp_q.filter(or_(VoucherHeader.company_id == company_id, VoucherHeader.company_id.is_(None)))
-            comp_rev_val, comp_exp_val = comp_q.one()
-            compare_revenue = _to_float(comp_rev_val)
-            compare_expenses = _to_float(comp_exp_val)
-
-            compare_net_profit = compare_revenue - compare_expenses
+            compare_revenue = _to_float(comp_pnl.get("incomeTotal", 0.0))
+            compare_expenses = _to_float(comp_pnl.get("expenseTotal", 0.0))
+            compare_net_profit = _to_float(comp_pnl.get("netProfit", 0.0))
             revenue_growth_pct = round(((revenue_total - compare_revenue) / compare_revenue * 100), 1) if compare_revenue > 0 else 0.0
             expenses_growth_pct = round(((expenses_total - compare_expenses) / compare_expenses * 100), 1) if compare_expenses > 0 else 0.0
             profit_growth_pct = round(((net_profit - compare_net_profit) / abs(compare_net_profit) * 100), 1) if compare_net_profit != 0 else 0.0
@@ -874,19 +837,12 @@ class DashboardService:
 
     @staticmethod
     def _compute_performance_trend(db: Session, company_id: Optional[UUID]) -> list:
-        """Monthly performance trend for the last 6 months, using one aggregate query.
-
-        The earlier implementation executed two aggregate queries for every
-        month. Besides adding network round-trips on hosted Postgres, applying
-        ``extract`` in each WHERE clause prevents a normal date-range index
-        from narrowing the scan.  Grouping the date-range result once keeps
-        the exact response shape while avoiding both problems.
-        """
+        """Monthly performance trend for the last 6 months, using true accounting movements."""
         from datetime import date
         from sqlalchemy import case, extract, func, or_
         from app.models.voucher_header import VoucherHeader
-        from app.models.voucher_type import VoucherType
-
+        from app.models.voucher_detail import VoucherDetail
+        from app.services.report_service import ReportService
         month_names = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
         today = date.today()
         cur_year, cur_month = today.year, today.month
@@ -898,7 +854,6 @@ class DashboardService:
                 m += 12
                 y -= 1
             months.append((y, m))
-
         first_year, first_month = months[0]
         start_date = date(first_year, first_month, 1)
         end_date = (
@@ -906,29 +861,26 @@ class DashboardService:
             if cur_month == 12
             else date(cur_year, cur_month + 1, 1)
         )
-        amount = func.coalesce(
-            VoucherHeader.total_debit, VoucherHeader.total_credit, 0
-        )
-        sales_type = or_(
-            VoucherHeader.voucher_type == "SALES",
-            VoucherType.base_voucher_type == "SALES",
-        )
-        purchase_type = or_(
-            VoucherHeader.voucher_type == "PURCHASE",
-            VoucherType.base_voucher_type == "PURCHASE",
-        )
+        group_map = ReportService._group_map(db)
+        ledgers = ReportService._get_ledgers(db, company_id)
+        income_ids = [l.id for l in ledgers if ReportService._nature(l, group_map) == "INCOME"]
+        expense_ids = [l.id for l in ledgers if ReportService._nature(l, group_map) == "EXPENSE"]
         year_expr = extract("year", VoucherHeader.voucher_date)
         month_expr = extract("month", VoucherHeader.voucher_date)
-
+        inc_cond = VoucherDetail.ledger_id.in_(income_ids) if income_ids else False
+        exp_cond = VoucherDetail.ledger_id.in_(expense_ids) if expense_ids else False
+        inc_amount = case((inc_cond, VoucherDetail.credit_amount - VoucherDetail.debit_amount), else_=0)
+        exp_amount = case((exp_cond, VoucherDetail.debit_amount - VoucherDetail.credit_amount), else_=0)
         trend_q = (
             db.query(
                 year_expr.label("year"),
                 month_expr.label("month"),
-                func.coalesce(func.sum(case((sales_type, amount), else_=0)), 0).label("revenue"),
-                func.coalesce(func.sum(case((purchase_type, amount), else_=0)), 0).label("expenses"),
+                func.coalesce(func.sum(inc_amount), 0).label("revenue"),
+                func.coalesce(func.sum(exp_amount), 0).label("expenses"),
             )
-            .outerjoin(VoucherType, VoucherType.id == VoucherHeader.voucher_type_id)
+            .join(VoucherHeader, VoucherHeader.id == VoucherDetail.voucher_id)
             .filter(
+                VoucherDetail.active == "Y",
                 VoucherHeader.voucher_status == "POSTED",
                 VoucherHeader.active == "Y",
                 VoucherHeader.voucher_date >= start_date,
@@ -942,7 +894,6 @@ class DashboardService:
                     VoucherHeader.company_id.is_(None),
                 )
             )
-
         values = {
             (int(row.year), int(row.month)): (
                 _to_float(row.revenue),
@@ -950,7 +901,6 @@ class DashboardService:
             )
             for row in trend_q.group_by(year_expr, month_expr).all()
         }
-
         return [
             {
                 "month": m_name,

@@ -849,29 +849,43 @@ export function Dashboard() {
         )}
 
         {/* CARD 4: Net profit */}
-        <div className="card-panel p-5 flex flex-col justify-between hover:border-emerald-500 transition-colors group fade-up">
+        <div className={`card-panel p-5 flex flex-col justify-between transition-colors group fade-up ${fin.net_profit >= 0 ? "hover:border-emerald-500" : "hover:border-rose-500"}`}>
           <div>
             <div className="flex items-center justify-between">
               <span
                 className="h-10 w-10 rounded-md grid place-items-center"
-                style={{ background: "rgba(16, 185, 129, 0.12)", color: "#10b981" }}
+                style={{
+                  background: fin.net_profit >= 0 ? "rgba(16, 185, 129, 0.12)" : "rgba(244, 63, 94, 0.12)",
+                  color: fin.net_profit >= 0 ? "#10b981" : "#f43f5e",
+                }}
               >
                 <TrendingUp className="h-5 w-5" />
               </span>
-              <span className="text-[11.5px] font-mono px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 font-medium">
+              <span
+                className={`text-[11.5px] font-mono px-2 py-0.5 rounded font-medium ${
+                  fin.net_profit >= 0
+                    ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
+                    : "bg-rose-500/10 text-rose-600 dark:text-rose-400"
+                }`}
+              >
                 {fin.profit_margin_pct}% margin
               </span>
             </div>
             <div className="mt-3">
               <div className="text-[13px] font-semibold">Net profit</div>
-              <div className="text-[24px] font-bold mono mt-1 tracking-tight style={{ color: '#10b981' }}">
+              <div
+                className="text-[24px] font-bold mono mt-1 tracking-tight"
+                style={{ color: fin.net_profit >= 0 ? "#10b981" : "#f43f5e" }}
+              >
                 {money(fin.net_profit)}
               </div>
             </div>
             <div className="mt-3 flex flex-col gap-1 text-[12px] text-muted-foreground">
               <div className="flex justify-between">
                 <span>Profitability status:</span>
-                <span className="font-medium text-emerald-600 dark:text-emerald-400">Positive margin</span>
+                <span className={`font-medium ${fin.net_profit >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400"}`}>
+                  {fin.net_profit >= 0 ? "Positive margin" : "Net loss"}
+                </span>
               </div>
             </div>
           </div>
@@ -927,7 +941,7 @@ export function Dashboard() {
                 <CreditCard className="h-5 w-5" />
               </span>
               <span className="text-[11.5px] font-mono px-2 py-0.5 rounded bg-amber-500/10 text-amber-600 dark:text-amber-400 font-medium">
-                65% of revenue
+                {fin.revenue_total > 0 ? Math.round((fin.expenses_total / fin.revenue_total) * 100) : 0}% of revenue
               </span>
             </div>
             <div className="mt-3">

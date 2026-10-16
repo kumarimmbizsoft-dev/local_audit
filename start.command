@@ -21,24 +21,41 @@ fi
 
 # Start Backend
 echo "[2/3] Starting FastAPI Backend on port 8000..."
+if [ ! -d "backend/.venv" ]; then
+  echo "[*] Setting up Python virtual environment (first run only)..."
+  python3 -m venv backend/.venv
+  backend/.venv/bin/pip install --no-warn-script-location -r backend/requirements.txt
+fi
+
 (
   cd backend
   PYTHONPATH=. .venv/bin/python -m uvicorn app.main:app --host 127.0.0.1 --port 8000
 ) &
 BACKEND_PID=$!
 
-# Start Frontend
-echo "[3/3] Starting React Frontend on port 4300..."
-(
-  cd frontend-react
-  npm run dev
-) &
-FRONTEND_PID=$!
+APP_PORT=8000
+FRONTEND_PID=""
+
+# Start Frontend Dev Server if npm and node_modules exist, otherwise use pre-built dist on port 8000
+if command -v npm >/dev/null 2>&1 && [ -d "frontend-react/node_modules" ]; then
+  echo "[3/3] Starting React Dev Server on port 4300..."
+  (
+    cd frontend-react
+    npm run dev
+  ) &
+  FRONTEND_PID=$!
+  APP_PORT=4300
+else
+  echo "[3/3] Using pre-built production bundle served on port 8000..."
+fi
 
 cleanup() {
   echo
   echo "Shutting down ImmBiz Books..."
-  kill "$BACKEND_PID" "$FRONTEND_PID" 2>/dev/null || true
+  kill "$BACKEND_PID" 2>/dev/null || true
+  if [ -n "$FRONTEND_PID" ]; then
+    kill "$FRONTEND_PID" 2>/dev/null || true
+  fi
   exit 0
 }
 trap cleanup INT TERM EXIT
@@ -48,19 +65,19 @@ trap cleanup INT TERM EXIT
   sleep 2
   echo "Opening ImmBiz Books in standalone desktop window..."
   if [ -d "/Applications/Google Chrome.app" ]; then
-    open -na "Google Chrome" --args --app="http://localhost:4300" --start-maximized
+    open -na "Google Chrome" --args --app="http://localhost:$APP_PORT" --start-maximized
   elif [ -d "/Applications/Microsoft Edge.app" ]; then
-    open -na "Microsoft Edge" --args --app="http://localhost:4300" --start-maximized
+    open -na "Microsoft Edge" --args --app="http://localhost:$APP_PORT" --start-maximized
   elif [ -d "/Applications/Brave Browser.app" ]; then
-    open -na "Brave Browser" --args --app="http://localhost:4300" --start-maximized
+    open -na "Brave Browser" --args --app="http://localhost:$APP_PORT" --start-maximized
   else
-    open "http://localhost:4300"
+    open "http://localhost:$APP_PORT"
   fi
 ) &
 
 echo "=================================================="
 echo " ImmBiz Books is running!"
-echo " App URL:     http://localhost:4300"
+echo " App URL:     http://localhost:$APP_PORT"
 echo " API Docs:    http://127.0.0.1:8000/docs"
 echo " Login:       admin / Admin@123"
 echo " Press Ctrl+C in this window to stop everything."

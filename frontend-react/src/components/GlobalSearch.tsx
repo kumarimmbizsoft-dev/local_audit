@@ -117,23 +117,32 @@ export function GlobalSearch() {
                   <li key={h.type + h.id}>
                     <button
                       className={cn(
-                        "w-full flex items-center gap-3 px-4 py-2.5 text-left",
-                        i === active ? "bg-[var(--teal-soft)]" : "hover:bg-muted/50"
+                        "w-full flex items-center gap-3 px-4 py-2.5 text-left transition-colors border-l-4",
+                        i === active
+                          ? "bg-primary text-primary-foreground font-bold border-l-primary shadow-sm"
+                          : "border-l-transparent hover:bg-muted/50"
                       )}
                       onMouseEnter={() => setActive(i)}
                       onClick={() => go(h)}
                     >
                       <span
                         className="h-8 w-8 rounded-md grid place-items-center shrink-0"
-                        style={{ background: "var(--teal-soft)", color: "var(--teal)" }}
+                        style={{
+                          background: i === active ? "rgba(255, 255, 255, 0.2)" : "var(--teal-soft)",
+                          color: i === active ? "#ffffff" : "var(--teal)",
+                        }}
                       >
                         <Icon className="h-4 w-4" />
                       </span>
                       <span className="min-w-0 flex-1">
-                        <span className="block text-[13px] font-medium truncate">{h.name}</span>
-                        <span className="block text-[11px] text-muted-foreground truncate">{h.sub}</span>
+                        <span className={cn("block text-[13px] truncate", i === active ? "font-bold text-primary-foreground" : "font-medium")}>
+                          {h.name}
+                        </span>
+                        <span className={cn("block text-[11px] truncate", i === active ? "text-primary-foreground/80 font-medium" : "text-muted-foreground")}>
+                          {h.sub}
+                        </span>
                       </span>
-                      <span className="mono text-[10px] uppercase tracking-wider text-muted-foreground">
+                      <span className={cn("mono text-[10px] uppercase tracking-wider", i === active ? "text-primary-foreground/90 font-semibold" : "text-muted-foreground")}>
                         {h.type.replace("_", " ")}
                       </span>
                     </button>

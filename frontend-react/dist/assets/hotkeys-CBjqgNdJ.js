@@ -1,0 +1,1 @@
+import{r as s}from"./vendor-react-DAWCluGc.js";function f(t){s.useEffect(()=>{const o=e=>{const r=(e.ctrlKey||e.metaKey?"ctrl+":"")+(e.shiftKey?"shift+":"")+e.key.toLowerCase(),n=t[r];n&&(e.preventDefault(),n(e))};return window.addEventListener("keydown",o),()=>window.removeEventListener("keydown",o)},[t])}export{f as u};

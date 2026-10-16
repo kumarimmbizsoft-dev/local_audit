@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
-import { Plus, Download, Upload, GitMerge, Lock, Unlock, Receipt, Settings, Trash2, X, UserPlus, ListPlus } from "lucide-react";
+import { Plus, Download, Upload, Lock, Unlock, Receipt, Settings, X, UserPlus, ListPlus } from "lucide-react";
 import { api, envelopeOk, envelopeMessage, envelopeResult } from "../lib/api";
 import { useAuth } from "../auth/AuthContext";
+import { useCompany } from "../auth/CompanyContext";
 import { useToast } from "../components/toast";
 import { money } from "../lib/format";
 import { quickGstinHint, type Hint } from "../lib/gst";
@@ -12,7 +13,6 @@ import { ActivityDrawer } from "../components/ActivityDrawer";
 import { ImportDialog } from "../components/ImportDialog";
 import {
   Button,
-  Checkbox,
   DatePicker,
   Field,
   Input,
@@ -57,6 +57,8 @@ interface Ledger {
   default_narration: string | null;
   tags: string | null;
   cost_center_id: string | null;
+  is_bank?: string | null;
+  is_cash?: string | null;
   is_frozen: string;
   active: string;
   is_system: string;
@@ -122,6 +124,23 @@ interface FormState {
   tags: string;
   cost_center_id: string;
   custom_fields: Record<string, string>;
+  bank_name: string;
+  account_holder_name: string;
+  account_number: string;
+  ifsc_code: string;
+  branch_name: string;
+  pan: string;
+  b_line1: string;
+  b_line2: string;
+  b_city: string;
+  b_state: string;
+  b_pincode: string;
+  s_line1: string;
+  s_line2: string;
+  s_city: string;
+  s_state: string;
+  s_pincode: string;
+  same_as_billing: boolean;
 }
 
 const emptyForm = (): FormState => ({
@@ -148,6 +167,23 @@ const emptyForm = (): FormState => ({
   tags: "",
   cost_center_id: "",
   custom_fields: {},
+  bank_name: "",
+  account_holder_name: "",
+  account_number: "",
+  ifsc_code: "",
+  branch_name: "",
+  pan: "",
+  b_line1: "",
+  b_line2: "",
+  b_city: "",
+  b_state: "",
+  b_pincode: "",
+  s_line1: "",
+  s_line2: "",
+  s_city: "",
+  s_state: "",
+  s_pincode: "",
+  same_as_billing: true,
 });
 
 const defaultBulkRows = (): BulkRow[] => [
@@ -158,6 +194,8 @@ const defaultBulkRows = (): BulkRow[] => [
 
 export function Ledgers() {
   const { can } = useAuth();
+  const { company } = useCompany();
+  const fyStart = company?.financial_year_start ? company.financial_year_start.slice(0, 10) : "";
   const { toast } = useToast();
   const loc = useLocation();
   const nav = useNavigate();
@@ -183,17 +221,17 @@ export function Ledgers() {
   const [nameHint, setNameHint] = useState<Hint | null>(null);
   const [gstinHint, setGstinHint] = useState<Hint | null>(null);
   const [groupSuggestion, setGroupSuggestion] = useState<{ id: string; name: string; balance_type: string } | null>(null);
+  type QuickLedgerType = "BANK" | "CASH" | "CUSTOMER" | "VENDOR" | "BOTH" | "";
+  const [quickType, setQuickType] = useState<QuickLedgerType>("");
 
   const [toDelete, setToDelete] = useState<Ledger | null>(null);
   const [activityFor, setActivityFor] = useState<Ledger | null>(null);
   const [activity, setActivity] = useState<Activity[]>([]);
   const [auditFor, setAuditFor] = useState<Ledger | null>(null);
   const [importOpen, setImportOpen] = useState(false);
-  const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [mergeOpen, setMergeOpen] = useState(false);
-  const [mergeTarget, setMergeTarget] = useState("");
   const [chooserOpen, setChooserOpen] = useState(false);
   const [bulkOpen, setBulkOpen] = useState(false);
+  const [bulkQuickType, setBulkQuickType] = useState<QuickLedgerType>("");
   const [bulkPrimary, setBulkPrimary] = useState("");
   const [bulkMain, setBulkMain] = useState("");
   const [bulkGroup, setBulkGroup] = useState("");
@@ -252,6 +290,7 @@ export function Ledgers() {
         id: form.id,
         name: form.name || null,
         gstin: form.gstin || null,
+        ledger_group_id: form.groupId || null,
       });
       const res = envelopeResult<any>(r);
       if (res?.name) setNameHint(res.name);
@@ -263,7 +302,7 @@ export function Ledgers() {
       else if (!form.gstin) setGstinHint(null);
     }, 350);
     return () => clearTimeout(t);
-  }, [form.name, form.gstin, form.id, drawer]);
+  }, [form.name, form.gstin, form.groupId, form.id, drawer]);
 
   // Auto-suggest group from ledger name.
   useEffect(() => {
@@ -308,6 +347,47 @@ export function Ledgers() {
     return { category: null, is_bank: "N", is_cash: "N" };
   };
 
+  function selectQuickType(type: "BANK" | "CASH" | "CUSTOMER" | "VENDOR" | "BOTH") {
+    if (quickType === type) {
+      setQuickType("");
+      setForm((prev) => ({
+        ...prev,
+        primaryId: "",
+        mainId: "",
+        groupId: "",
+        balance_type: "",
+      }));
+      return;
+    }
+
+    const sub = groups.find((g) => {
+      if (g.key_group !== "S") return false;
+      const c = (g.code || "").toUpperCase();
+      const n = (g.name || "").toLowerCase().trim();
+      if (type === "BANK") return c === "BANK_ACCOUNTS" || n === "bank accounts" || n.startsWith("bank account");
+      if (type === "CASH") return c === "CASH_IN_HAND" || n === "cash-in-hand" || n.includes("cash");
+      if (type === "CUSTOMER" || type === "BOTH") return c === "SUNDRY_DEBTORS" || n === "sundry debtors" || n.includes("debtor");
+      if (type === "VENDOR") return c === "SUNDRY_CREDITORS" || n === "sundry creditors" || n.includes("creditor");
+      return false;
+    });
+
+    if (sub) {
+      const main = sub.parent_id ? groupById.get(sub.parent_id) : undefined;
+      const primary = main?.parent_id ? groupById.get(main.parent_id) : undefined;
+
+      setQuickType(type);
+      setForm((prev) => ({
+        ...prev,
+        primaryId: type === "BOTH" ? "" : (primary?.id || ""),
+        mainId: type === "BOTH" ? "" : (main?.id || ""),
+        groupId: type === "BOTH" ? "" : sub.id,
+        balance_type: type === "VENDOR" ? "CR" : (type === "CUSTOMER" || type === "BOTH") ? "DR" : (sub.balance_type || "DR"),
+      }));
+    } else {
+      setQuickType(type);
+    }
+  }
+
   // Deduplicate groups by (key_group, name, parent_id) to avoid duplicate dropdown options
   const uniqueGroups = useMemo(() => {
     const seen = new Set<string>();
@@ -350,7 +430,8 @@ export function Ledgers() {
   const showGst = true;
 
   function openNew() {
-    setForm(emptyForm());
+    setForm({ ...emptyForm(), opening_balance_date: fyStart });
+    setQuickType("");
     setSubmitted(false);
     setNameHint(null);
     setGstinHint(null);
@@ -361,15 +442,49 @@ export function Ledgers() {
     setChooserOpen(true);
   }
   function openBulkNew() {
+    setBulkQuickType("");
     setBulkPrimary("");
     setBulkMain("");
     setBulkGroup("");
-    setBulkDate("");
+    setBulkDate(fyStart);
     setBulkRows(defaultBulkRows());
     setBulkErrors({});
     setBulkSubmitted(false);
     setBulkSaving(false);
     setBulkOpen(true);
+  }
+  function selectBulkQuickType(type: "BANK" | "CASH" | "CUSTOMER" | "VENDOR") {
+    if (bulkQuickType === type) {
+      setBulkQuickType("");
+      setBulkPrimary("");
+      setBulkMain("");
+      setBulkGroup("");
+      setBulkErrors({});
+      return;
+    }
+
+    const sub = groups.find((g) => {
+      if (g.key_group !== "S") return false;
+      const c = (g.code || "").toUpperCase();
+      const n = (g.name || "").toLowerCase().trim();
+      if (type === "BANK") return c === "BANK_ACCOUNTS" || n === "bank accounts" || n.startsWith("bank account");
+      if (type === "CASH") return c === "CASH_IN_HAND" || n === "cash-in-hand" || n.includes("cash");
+      if (type === "CUSTOMER") return c === "SUNDRY_DEBTORS" || n === "sundry debtors" || n.includes("debtor");
+      if (type === "VENDOR") return c === "SUNDRY_CREDITORS" || n === "sundry creditors" || n.includes("creditor");
+      return false;
+    });
+
+    if (sub) {
+      const main = sub.parent_id ? groupById.get(sub.parent_id) : undefined;
+      const primary = main?.parent_id ? groupById.get(main.parent_id) : undefined;
+
+      setBulkQuickType(type);
+      setBulkPrimary(primary?.id || "");
+      setBulkMain(main?.id || "");
+      selectBulkGroup(sub.id);
+    } else {
+      setBulkQuickType(type);
+    }
   }
   function setBulkRow(i: number, patch: Partial<BulkRow>) {
     setBulkRows((rows) => rows.map((r, idx) => (idx === i ? { ...r, ...patch } : r)));
@@ -454,6 +569,31 @@ export function Ledgers() {
     const sub = l.ledger_group_id ? groupById.get(l.ledger_group_id) : undefined;
     const main = sub?.parent_id ? groupById.get(sub.parent_id) : undefined;
     const primary = main?.parent_id ? groupById.get(main.parent_id) : undefined;
+
+    const subCode = (sub?.code || "").toUpperCase();
+    const subName = (sub?.name || "").toLowerCase();
+    let initialType: QuickLedgerType = "";
+    if (l.is_bank === "Y" || subCode === "BANK_ACCOUNTS" || subName.includes("bank")) initialType = "BANK";
+    else if (l.is_cash === "Y" || subCode === "CASH_IN_HAND" || subName.includes("cash")) initialType = "CASH";
+    else if (subCode === "SUNDRY_DEBTORS" || subName.includes("debtor") || l.category === "customer") {
+      const hasVendorPartner = ledgers.some(
+        (other) =>
+          other.id !== l.id &&
+          other.name.trim().toLowerCase() === l.name.trim().toLowerCase() &&
+          (other.category === "vendor" || groupById.get(other.ledger_group_id || "")?.code === "SUNDRY_CREDITORS")
+      );
+      initialType = hasVendorPartner ? "BOTH" : "CUSTOMER";
+    } else if (subCode === "SUNDRY_CREDITORS" || subName.includes("creditor") || l.category === "vendor") {
+      const hasCustomerPartner = ledgers.some(
+        (other) =>
+          other.id !== l.id &&
+          other.name.trim().toLowerCase() === l.name.trim().toLowerCase() &&
+          (other.category === "customer" || groupById.get(other.ledger_group_id || "")?.code === "SUNDRY_DEBTORS")
+      );
+      initialType = hasCustomerPartner ? "BOTH" : "VENDOR";
+    }
+    setQuickType(initialType);
+
     setForm({
       id: l.id,
       name: l.name,
@@ -478,7 +618,69 @@ export function Ledgers() {
       tags: l.tags ?? "",
       cost_center_id: l.cost_center_id ?? "",
       custom_fields: ((l as any).custom_fields as Record<string, string>) || {},
+      bank_name: "",
+      account_holder_name: l.name,
+      account_number: "",
+      ifsc_code: "",
+      branch_name: "",
+      pan: "",
+      b_line1: "",
+      b_line2: "",
+      b_city: "",
+      b_state: "",
+      b_pincode: "",
+      s_line1: "",
+      s_line2: "",
+      s_city: "",
+      s_state: "",
+      s_pincode: "",
+      same_as_billing: true,
     });
+
+    if (initialType === "BANK") {
+      api.get("/api/bank-accounts").then((r) => {
+        const accounts = envelopeResult<any[]>(r) || [];
+        const match = accounts.find((a) => a.ledger_id === l.id);
+        if (match) {
+          setForm((prev) => ({
+            ...prev,
+            account_number: match.account_number || "",
+            account_holder_name: match.account_holder_name || "",
+            ifsc_code: match.ifsc_code || "",
+            branch_name: match.branch || "",
+            bank_name: match.bank_name || "",
+          }));
+        }
+      });
+    } else if (initialType === "CUSTOMER" || initialType === "VENDOR" || initialType === "BOTH") {
+      api.get(`/parties`).then((r) => {
+        const parties = envelopeResult<any[]>(r) || [];
+        const match = parties.find(
+          (p) =>
+            p.ledger_id === l.id ||
+            (p.name_contact_info?.company_name || "").toLowerCase() === l.name.toLowerCase()
+        );
+        if (match) {
+          const b = match.address_info?.billing_address || {};
+          const s = match.address_info?.shipping_address || {};
+          setForm((prev) => ({
+            ...prev,
+            pan: match.pan || prev.pan,
+            b_line1: b.address_line1 || "",
+            b_line2: b.address_line2 || "",
+            b_city: b.city || "",
+            b_state: b.state || "",
+            b_pincode: b.pincode || "",
+            s_line1: s.address_line1 || "",
+            s_line2: s.address_line2 || "",
+            s_city: s.city || "",
+            s_state: s.state || "",
+            s_pincode: s.pincode || "",
+            same_as_billing: match.address_info?.same_as_billing ?? true,
+          }));
+        }
+      });
+    }
     setSubmitted(false);
     setNameHint(null);
     setGstinHint(null);
@@ -491,14 +693,191 @@ export function Ledgers() {
     if (!form.name.trim()) return;
     if (nameHint?.level === "error" && !form.id) return;
     setSaving(true);
+
+    const formattedBilling = [form.b_line1, form.b_line2, form.b_city, form.b_state, form.b_pincode]
+      .filter(Boolean)
+      .join(", ");
+    const finalAddress = formattedBilling || form.address || null;
+
+    if (quickType === "BOTH") {
+      const debtorSub = groups.find((g) => {
+        if (g.key_group !== "S") return false;
+        const c = (g.code || "").toUpperCase();
+        const n = (g.name || "").toLowerCase().trim();
+        return c === "SUNDRY_DEBTORS" || n === "sundry debtors" || n.includes("debtor");
+      });
+      const creditorSub = groups.find((g) => {
+        if (g.key_group !== "S") return false;
+        const c = (g.code || "").toUpperCase();
+        const n = (g.name || "").toLowerCase().trim();
+        return c === "SUNDRY_CREDITORS" || n === "sundry creditors" || n.includes("creditor");
+      });
+
+      const debtorBal = form.balance_type === "CR" ? 0 : form.opening_balance ? Number(form.opening_balance) : 0;
+      const creditorBal = form.balance_type === "CR" ? (form.opening_balance ? Number(form.opening_balance) : 0) : 0;
+
+      const basePayload = {
+        name: form.name.trim(),
+        opening_balance_date: form.opening_balance_date || null,
+        description: form.description || null,
+        gstin: form.gstin ? form.gstin.toUpperCase() : null,
+        gst_type: form.gst_type || null,
+        default_gst_rate: form.default_gst_rate ? Number(form.default_gst_rate) : null,
+        hsn_sac: form.hsn_sac || null,
+        address: finalAddress,
+        contact_person: form.contact_person || null,
+        email: form.email || null,
+        mobile: form.mobile || null,
+        credit_limit: form.credit_limit ? Number(form.credit_limit) : null,
+        payment_terms: form.payment_terms || null,
+        active: "Y",
+      };
+
+      const dPayload = {
+        ...basePayload,
+        category: "customer",
+        is_bank: "N",
+        is_cash: "N",
+        ledger_group_id: debtorSub?.id || null,
+        balance_type: "DR",
+        opening_balance: debtorBal,
+      };
+
+      const cPayload = {
+        ...basePayload,
+        category: "vendor",
+        is_bank: "N",
+        is_cash: "N",
+        ledger_group_id: creditorSub?.id || null,
+        balance_type: "CR",
+        opening_balance: creditorBal,
+      };
+
+      if (form.id) {
+        await api.put(`/ledgers/${form.id}`, form.balance_type === "CR" ? cPayload : dPayload);
+        const partner = ledgers.find(
+          (other) =>
+            other.id !== form.id && other.name.trim().toLowerCase() === form.name.trim().toLowerCase()
+        );
+        if (partner) {
+          await api.put(`/ledgers/${partner.id}`, form.balance_type === "CR" ? dPayload : cPayload);
+        } else {
+          await api.post("/ledgers", form.balance_type === "CR" ? dPayload : cPayload);
+        }
+      } else {
+        await api.post("/ledgers", dPayload);
+        await api.post("/ledgers", cPayload);
+      }
+
+      // Sync to master.party
+      const partyPayload = {
+        key_group: "B",
+        active: "Y",
+        gstin: form.gstin ? form.gstin.toUpperCase() : null,
+        pan: form.pan ? form.pan.toUpperCase() : null,
+        gst_type: form.gst_type || null,
+        name_contact_info: {
+          first_name: form.name.trim(),
+          company_name: form.name.trim(),
+          display_name: form.name.trim(),
+          email: form.email || null,
+          mobile_number: form.mobile || null,
+          contact_persons: form.contact_person
+            ? [{ name: form.contact_person, mobile: form.mobile || null, email: form.email || null }]
+            : [],
+        },
+        address_info: {
+          billing_address: {
+            address_line1: form.b_line1 || null,
+            address_line2: form.b_line2 || null,
+            city: form.b_city || null,
+            state: form.b_state || null,
+            country: "India",
+            pincode: form.b_pincode || null,
+          },
+          shipping_address: form.same_as_billing
+            ? {
+              address_line1: form.b_line1 || null,
+              address_line2: form.b_line2 || null,
+              city: form.b_city || null,
+              state: form.b_state || null,
+              country: "India",
+              pincode: form.b_pincode || null,
+            }
+            : {
+              address_line1: form.s_line1 || null,
+              address_line2: form.s_line2 || null,
+              city: form.s_city || null,
+              state: form.s_state || null,
+              country: "India",
+              pincode: form.s_pincode || null,
+            },
+          same_as_billing: form.same_as_billing,
+        },
+        payment_info: {
+          terms: form.payment_terms || null,
+          credit_limit: form.credit_limit ? Number(form.credit_limit) : 0,
+        },
+        additional_info: {
+          opening_bal: form.opening_balance ? Number(form.opening_balance) : 0,
+          date: form.opening_balance_date || null,
+        },
+      };
+
+      const partyRes = await api.get(`/parties?key_group=B`);
+      const existingParties = envelopeResult<any[]>(partyRes) || [];
+      const matchParty = existingParties.find(
+        (p) => (p.name_contact_info?.company_name || "").toLowerCase() === form.name.trim().toLowerCase()
+      );
+      if (matchParty) {
+        await api.put(`/parties/${matchParty.id}`, partyPayload);
+      } else {
+        await api.post("/parties", partyPayload);
+      }
+
+      setSaving(false);
+      toast({
+        title: form.id ? "Dual Ledger updated" : "Dual Ledger created",
+        desc: `${form.name} (Debtor & Creditor)`,
+        tone: "success",
+      });
+      if (andNew) {
+        setForm({ ...emptyForm(), opening_balance_date: fyStart });
+        setQuickType("");
+        setSubmitted(false);
+        setNameHint(null);
+        setGstinHint(null);
+      } else {
+        setDrawer(false);
+      }
+      load();
+      return;
+    }
+
     const catFlags = getCategoryAndFlags(form.groupId || null);
+    const isBank = quickType === "BANK" ? "Y" : catFlags.is_bank || "N";
+    const isCash = quickType === "CASH" ? "Y" : catFlags.is_cash || "N";
+    const category =
+      quickType === "BANK"
+        ? "bank"
+        : quickType === "CASH"
+          ? "cash"
+          : quickType === "CUSTOMER"
+            ? "customer"
+            : quickType === "VENDOR"
+              ? "vendor"
+              : catFlags.category;
+
     const payload = {
       name: form.name.trim(),
-      category: catFlags.category,
-      is_bank: catFlags.is_bank,
-      is_cash: catFlags.is_cash,
+      category,
+      is_bank: isBank,
+      is_cash: isCash,
       ledger_group_id: form.groupId || null,
-      balance_type: form.balance_type || null,
+      balance_type:
+        form.balance_type ||
+        (form.groupId ? groupById.get(form.groupId)?.balance_type : null) ||
+        (quickType === "VENDOR" ? "CR" : "DR"),
       opening_balance: form.opening_balance ? Number(form.opening_balance) : 0,
       opening_balance_date: form.opening_balance_date || null,
       description: form.description || null,
@@ -506,7 +885,7 @@ export function Ledgers() {
       gst_type: form.gst_type || null,
       default_gst_rate: form.default_gst_rate ? Number(form.default_gst_rate) : null,
       hsn_sac: form.hsn_sac || null,
-      address: form.address || null,
+      address: finalAddress,
       contact_person: form.contact_person || null,
       email: form.email || null,
       mobile: form.mobile || null,
@@ -518,17 +897,114 @@ export function Ledgers() {
       custom_fields: Object.keys(form.custom_fields).length ? form.custom_fields : null,
       active: "Y",
     };
-    const r = form.id
-      ? await api.put(`/ledgers/${form.id}`, payload)
-      : await api.post("/ledgers", payload);
+
+    const r = form.id ? await api.put(`/ledgers/${form.id}`, payload) : await api.post("/ledgers", payload);
     setSaving(false);
     if (!envelopeOk(r)) {
       toast({ title: "Could not save", desc: envelopeMessage(r), tone: "error" });
       return;
     }
+
+    const createdLedgerId = form.id || envelopeResult<any>(r)?.id;
+
+    // Bank Account Master sync
+    if (quickType === "BANK" && form.account_number && createdLedgerId) {
+      const bPayload = {
+        account_type: "BANK",
+        bank_name: form.bank_name || form.name.trim(),
+        account_holder_name: form.account_holder_name ? form.account_holder_name.trim() : null,
+        account_number: form.account_number.trim(),
+        ifsc_code: form.ifsc_code.trim(),
+        branch: form.branch_name.trim(),
+        ledger_id: createdLedgerId,
+      };
+      api.get("/bank-accounts").then((bRes) => {
+        const accounts = envelopeResult<any[]>(bRes) || [];
+        const match = accounts.find((a) => a.ledger_id === createdLedgerId);
+        if (match) {
+          api.put(`/bank-accounts/${match.id}`, bPayload).catch(() => { });
+        } else {
+          api.post("/bank-accounts", bPayload).catch(() => { });
+        }
+      });
+    }
+
+    // Party sync for Customer or Vendor
+    if ((quickType === "CUSTOMER" || quickType === "VENDOR") && createdLedgerId) {
+      const partyKey = quickType === "CUSTOMER" ? "C" : "V";
+      const pPayload = {
+        key_group: partyKey,
+        active: "Y",
+        gstin: form.gstin ? form.gstin.toUpperCase() : null,
+        pan: form.pan ? form.pan.toUpperCase() : null,
+        gst_type: form.gst_type || null,
+        name_contact_info: {
+          first_name: form.name.trim(),
+          company_name: form.name.trim(),
+          display_name: form.name.trim(),
+          email: form.email || null,
+          mobile_number: form.mobile || null,
+          contact_persons: form.contact_person
+            ? [{ name: form.contact_person, mobile: form.mobile || null, email: form.email || null }]
+            : [],
+        },
+        address_info: {
+          billing_address: {
+            address_line1: form.b_line1 || null,
+            address_line2: form.b_line2 || null,
+            city: form.b_city || null,
+            state: form.b_state || null,
+            country: "India",
+            pincode: form.b_pincode || null,
+          },
+          shipping_address: form.same_as_billing
+            ? {
+              address_line1: form.b_line1 || null,
+              address_line2: form.b_line2 || null,
+              city: form.b_city || null,
+              state: form.b_state || null,
+              country: "India",
+              pincode: form.b_pincode || null,
+            }
+            : {
+              address_line1: form.s_line1 || null,
+              address_line2: form.s_line2 || null,
+              city: form.s_city || null,
+              state: form.s_state || null,
+              country: "India",
+              pincode: form.s_pincode || null,
+            },
+          same_as_billing: form.same_as_billing,
+        },
+        payment_info: {
+          terms: form.payment_terms || null,
+          credit_limit: form.credit_limit ? Number(form.credit_limit) : 0,
+        },
+        additional_info: {
+          opening_bal: form.opening_balance ? Number(form.opening_balance) : 0,
+          date: form.opening_balance_date || null,
+        },
+      };
+
+      api.get(`/parties?key_group=${partyKey}`).then((pRes) => {
+        const pList = envelopeResult<any[]>(pRes) || [];
+        const match = pList.find(
+          (p) =>
+            p.ledger_id === createdLedgerId ||
+            (p.name_contact_info?.company_name || "").toLowerCase() === form.name.trim().toLowerCase()
+        );
+        if (match) {
+          api.put(`/parties/${match.id}`, pPayload).catch(() => { });
+        } else {
+          api.post("/parties", pPayload).catch(() => { });
+        }
+      });
+    }
+
     toast({ title: form.id ? "Ledger updated" : "Ledger created", desc: form.name, tone: "success" });
     if (andNew) {
-      setForm(emptyForm());
+      setForm({ ...emptyForm(), opening_balance_date: fyStart });
+      setQuickType("");
       setSubmitted(false);
       setNameHint(null);
       setGstinHint(null);
@@ -539,50 +1015,11 @@ export function Ledgers() {
   }
 
   async function saveAndTransact() {
-    setSubmitted(true);
-    if (!form.name.trim()) return;
-    if (nameHint?.level === "error" && !form.id) return;
-    setSaving(true);
-    const catFlags = getCategoryAndFlags(form.groupId || null);
-    const payload = {
-      name: form.name.trim(),
-      category: catFlags.category,
-      is_bank: catFlags.is_bank,
-      is_cash: catFlags.is_cash,
-      ledger_group_id: form.groupId || null,
-      balance_type: form.balance_type || null,
-      opening_balance: form.opening_balance ? Number(form.opening_balance) : 0,
-      opening_balance_date: form.opening_balance_date || null,
-      description: form.description || null,
-      gstin: form.gstin ? form.gstin.toUpperCase() : null,
-      gst_type: form.gst_type || null,
-      default_gst_rate: form.default_gst_rate ? Number(form.default_gst_rate) : null,
-      hsn_sac: form.hsn_sac || null,
-      address: form.address || null,
-      contact_person: form.contact_person || null,
-      email: form.email || null,
-      mobile: form.mobile || null,
-      credit_limit: form.credit_limit ? Number(form.credit_limit) : null,
-      payment_terms: form.payment_terms || null,
-      default_narration: form.default_narration || null,
-      tags: form.tags || null,
-      cost_center_id: form.cost_center_id || null,
-      custom_fields: Object.keys(form.custom_fields).length ? form.custom_fields : null,
-      active: "Y",
-    };
-    const r = form.id
-      ? await api.put(`/ledgers/${form.id}`, payload)
-      : await api.post("/ledgers", payload);
-    setSaving(false);
-    if (!envelopeOk(r)) {
-      toast({ title: "Could not save", desc: envelopeMessage(r), tone: "error" });
-      return;
-    }
-    const saved = envelopeResult<Ledger>(r);
-    setDrawer(false);
-    // Jump straight into a new voucher with this ledger pre-selected (spec 5.1).
+    const ledgerName = form.name.trim();
+    const origId = form.id;
+    await save(false);
     nav("/app/journal", {
-      state: { openNew: true, ledgerId: saved?.id, ledgerName: saved?.name },
+      state: { openNew: true, ledgerId: origId, ledgerName },
     });
   }
 
@@ -627,47 +1064,6 @@ export function Ledgers() {
     );
   }
 
-  function toggleSelect(id: string, checked: boolean) {
-    setSelected((s) => {
-      const n = new Set(s);
-      checked ? n.add(id) : n.delete(id);
-      return n;
-    });
-  }
-
-  async function bulkStatus(active: "Y" | "N") {
-    const r = await api.post("/import/bulk-status", { entity: "LEDGER", ids: [...selected], active });
-    toast({ title: envelopeMessage(r), tone: envelopeOk(r) ? "success" : "error" });
-    setSelected(new Set());
-    load();
-  }
-
-  async function bulkCategory(gid: string) {
-    if (!gid) return;
-    const r = await api.post("/import/bulk-category", { ids: [...selected], ledger_group_id: gid });
-    toast({ title: envelopeMessage(r), tone: envelopeOk(r) ? "success" : "error" });
-    setSelected(new Set());
-    load();
-  }
-
-  async function bulkDelete() {
-    if (!confirm(`Deactivate ${selected.size} selected ledger(s)? System and frozen ledgers are skipped. History is preserved.`)) return;
-    const r = await api.post("/import/bulk-delete", { entity: "LEDGER", ids: [...selected] });
-    toast({ title: envelopeMessage(r), tone: envelopeOk(r) ? "success" : "error" });
-    setSelected(new Set());
-    load();
-  }
-
-  async function doMerge() {
-    if (selected.size !== 1 || !mergeTarget) return;
-    const [src] = [...selected];
-    const r = await api.post("/ledgers/merge", { source_id: src, target_id: mergeTarget });
-    toast({ title: envelopeMessage(r), tone: envelopeOk(r) ? "success" : "error" });
-    setMergeOpen(false);
-    setSelected(new Set());
-    load();
-  }
-
   const gstStatus = (l: Ledger) => {
     if (l.gstin) return <Badge tone="ok">Registered</Badge>;
     if (l.gst_type === "UNREGISTERED") return <Badge tone="muted">Unregistered</Badge>;
@@ -705,33 +1101,6 @@ export function Ledgers() {
         </>
       }
     >
-      {selected.size > 0 && (
-        <div className="card-panel mb-4 px-4 py-2.5 flex items-center gap-3 flex-wrap fade-up">
-          <span className="text-[13px] font-semibold">{selected.size} selected</span>
-          <Button size="sm" variant="outline" onClick={() => bulkStatus("Y")}>Activate</Button>
-          <Button size="sm" variant="outline" onClick={() => bulkStatus("N")}>Deactivate</Button>
-          <Select className="h-8 w-52" defaultValue="" onChange={(e) => bulkCategory(e.target.value)}>
-            <option value="">Bulk move to sub-category…</option>
-            {groups.filter((g) => g.key_group === "S").map((g) => (
-              <option key={g.id} value={g.id}>{g.name}</option>
-            ))}
-          </Select>
-          {selected.size === 1 && canDelete && (
-            <Button size="sm" variant="outline" onClick={() => setMergeOpen(true)}>
-              <GitMerge className="h-3.5 w-3.5 mr-1" />
-              Merge into…
-            </Button>
-          )}
-          {canDelete && (
-            <Button size="sm" variant="outline" className="text-destructive border-destructive/40 hover:text-destructive" onClick={bulkDelete}>
-              <Trash2 className="h-3.5 w-3.5 mr-1" />
-              Delete
-            </Button>
-          )}
-          <Button size="sm" variant="ghost" onClick={() => setSelected(new Set())}>Clear</Button>
-        </div>
-      )}
-
       <Panel
         pad={false}
         title={`${filtered.length} ledgers`}
@@ -759,7 +1128,6 @@ export function Ledgers() {
           <TableWrap>
             <thead>
               <tr>
-                <Th className="w-8" />
                 <Th>Name</Th>
                 <Th>Group</Th>
                 <Th className="w-24">Type</Th>
@@ -770,12 +1138,9 @@ export function Ledgers() {
               </tr>
             </thead>
             <tbody>
-              {filtered.length === 0 && <EmptyRow colSpan={8} text="No ledgers match your search." />}
+              {filtered.length === 0 && <EmptyRow colSpan={7} text="No ledgers match your search." />}
               {filtered.map((l) => (
                 <tr key={l.id} className="hover:bg-muted/40">
-                  <Td>
-                    <Checkbox checked={selected.has(l.id)} onChange={(e) => toggleSelect(l.id, e.target.checked)} />
-                  </Td>
                   <Td>
                     {canViewActivity ? (
                       <button
@@ -872,6 +1237,7 @@ export function Ledgers() {
         }
       >
         <div className="space-y-6">
+          {/* Permanent standard header fields - ALWAYS VISIBLE */}
           <div>
             <div className="eyebrow mb-3">Basic info</div>
             <div className="grid md:grid-cols-2 gap-3">
@@ -884,70 +1250,148 @@ export function Ledgers() {
                 <Input
                   value={form.name}
                   onChange={(e) => setForm({ ...form, name: e.target.value })}
-                  placeholder="e.g. HDFC Bank – 5521"
+                  placeholder="e.g. HDFC Bank, Tata Steel, Rent Account"
                   autoFocus
                 />
               </Field>
             </div>
 
-            {groupSuggestion && !form.groupId && (
-              <button
-                className="mt-2 text-[12.5px] rounded-[5px] px-2.5 py-1.5 bg-[var(--teal-soft)] text-[var(--teal)] font-medium hover:opacity-80"
-                onClick={() => {
-                  const sub = groups.find((g) => g.id === groupSuggestion.id);
-                  const main = sub?.parent_id ? groupById.get(sub.parent_id) : undefined;
-                  const primary = main?.parent_id ? groupById.get(main.parent_id) : undefined;
-                  setForm({
-                    ...form,
-                    primaryId: primary?.id || "",
-                    mainId: main?.id || "",
-                    groupId: groupSuggestion.id,
-                    balance_type: form.balance_type || groupSuggestion.balance_type,
-                  });
-                }}
-              >
-                ✨ Suggested group: {groupSuggestion.name} — click to apply
-              </button>
-            )}
+            {/* 5 Radio Buttons with toggle-to-clear */}
+            <div className="flex flex-wrap items-center gap-6 mt-3 pt-2.5 pb-2 border-y border-border/60">
+              <label className="flex items-center gap-2 cursor-pointer text-xs font-medium text-foreground select-none">
+                <input
+                  type="radio"
+                  name="quickLedgerType"
+                  className="h-4 w-4 accent-[var(--teal)] cursor-pointer"
+                  checked={quickType === "BANK"}
+                  onClick={() => selectQuickType("BANK")}
+                  onChange={() => { }}
+                />
+                <span>Bank</span>
+              </label>
 
-            <div className="grid grid-cols-3 gap-3 mt-3">
-              <Field label="Primary">
-                <Select
-                  value={form.primaryId}
-                  onChange={(e) => setForm({ ...form, primaryId: e.target.value, mainId: "", groupId: "" })}
-                >
-                  <option value="">Select</option>
-                  {primaries.map((g) => (
-                    <option key={g.id} value={g.id}>{g.name}</option>
-                  ))}
-                </Select>
-              </Field>
-              <Field label="Main">
-                <Select
-                  value={form.mainId}
-                  disabled={!form.primaryId}
-                  onChange={(e) => setForm({ ...form, mainId: e.target.value, groupId: "" })}
-                >
-                  <option value="">Select</option>
-                  {mains.map((g) => (
-                    <option key={g.id} value={g.id}>{g.name}</option>
-                  ))}
-                </Select>
-              </Field>
-              <Field label="Sub-category">
-                <Select
-                  value={form.groupId}
-                  disabled={!form.mainId}
-                  onChange={(e) => setForm({ ...form, groupId: e.target.value })}
-                >
-                  <option value="">Select</option>
-                  {subs.map((g) => (
-                    <option key={g.id} value={g.id}>{g.name}</option>
-                  ))}
-                </Select>
-              </Field>
+              <label className="flex items-center gap-2 cursor-pointer text-xs font-medium text-foreground select-none">
+                <input
+                  type="radio"
+                  name="quickLedgerType"
+                  className="h-4 w-4 accent-[var(--teal)] cursor-pointer"
+                  checked={quickType === "CASH"}
+                  onClick={() => selectQuickType("CASH")}
+                  onChange={() => { }}
+                />
+                <span>Cash</span>
+              </label>
+
+              <label className="flex items-center gap-2 cursor-pointer text-xs font-medium text-foreground select-none">
+                <input
+                  type="radio"
+                  name="quickLedgerType"
+                  className="h-4 w-4 accent-[var(--teal)] cursor-pointer"
+                  checked={quickType === "CUSTOMER"}
+                  onClick={() => selectQuickType("CUSTOMER")}
+                  onChange={() => { }}
+                />
+                <span>Customer</span>
+              </label>
+
+              <label className="flex items-center gap-2 cursor-pointer text-xs font-medium text-foreground select-none">
+                <input
+                  type="radio"
+                  name="quickLedgerType"
+                  className="h-4 w-4 accent-[var(--teal)] cursor-pointer"
+                  checked={quickType === "VENDOR"}
+                  onClick={() => selectQuickType("VENDOR")}
+                  onChange={() => { }}
+                />
+                <span>Vendor</span>
+              </label>
+
+              <label className="flex items-center gap-2 cursor-pointer text-xs font-medium text-foreground select-none">
+                <input
+                  type="radio"
+                  name="quickLedgerType"
+                  className="h-4 w-4 accent-[var(--teal)] cursor-pointer"
+                  checked={quickType === "BOTH"}
+                  onClick={() => selectQuickType("BOTH")}
+                  onChange={() => { }}
+                />
+                <span>Both</span>
+              </label>
             </div>
 
+
+            {/* DYNAMIC HIERARCHY - Shown for all except "BOTH" */}
+            {quickType !== "BOTH" && (
+              <div className="fade-up space-y-3 pt-1">
+                <div className="eyebrow">Group hierarchy</div>
+                {quickType === "" && groupSuggestion && !form.groupId && (
+                  <button
+                    type="button"
+                    className="mb-2 text-[12.5px] rounded-[5px] px-2.5 py-1.5 bg-[var(--teal-soft)] text-[var(--teal)] font-medium hover:opacity-80"
+                    onClick={() => {
+                      const sub = groups.find((g) => g.id === groupSuggestion.id);
+                      const main = sub?.parent_id ? groupById.get(sub.parent_id) : undefined;
+                      const primary = main?.parent_id ? groupById.get(main.parent_id) : undefined;
+                      setForm({
+                        ...form,
+                        primaryId: primary?.id || "",
+                        mainId: main?.id || "",
+                        groupId: groupSuggestion.id,
+                        balance_type: form.balance_type || groupSuggestion.balance_type,
+                      });
+                    }}
+                  >
+                    ✨ Suggested group: {groupSuggestion.name} — click to apply
+                  </button>
+                )}
+
+                <div className="grid grid-cols-3 gap-3">
+                  <Field label="Primary">
+                    <Select
+                      value={form.primaryId}
+                      onChange={(e) => setForm({ ...form, primaryId: e.target.value, mainId: "", groupId: "" })}
+                    >
+                      <option value="">Select</option>
+                      {primaries.map((g) => (
+                        <option key={g.id} value={g.id}>{g.name}</option>
+                      ))}
+                    </Select>
+                  </Field>
+                  <Field label="Main">
+                    <Select
+                      value={form.mainId}
+                      disabled={!form.primaryId}
+                      onChange={(e) => setForm({ ...form, mainId: e.target.value, groupId: "" })}
+                    >
+                      <option value="">Select</option>
+                      {mains.map((g) => (
+                        <option key={g.id} value={g.id}>{g.name}</option>
+                      ))}
+                    </Select>
+                  </Field>
+                  <Field label="Sub-category">
+                    <Select
+                      value={form.groupId}
+                      disabled={!form.mainId}
+                      onChange={(e) => {
+                        const selectedSub = groupById.get(e.target.value);
+                        setForm({
+                          ...form,
+                          groupId: e.target.value,
+                          balance_type: form.balance_type || selectedSub?.balance_type || "",
+                        });
+                      }}
+                    >
+                      <option value="">Select</option>
+                      {subs.map((g) => (
+                        <option key={g.id} value={g.id}>{g.name}</option>
+                      ))}
+                    </Select>
+                  </Field>
+                </div>
+              </div>
+            )}
+            {/* Standard opening balance, balance type & as on date */}
             <div className="grid grid-cols-3 gap-3 mt-3">
               <Field label="Opening balance">
                 <Input
@@ -975,122 +1419,289 @@ export function Ledgers() {
             </div>
           </div>
 
-          {showGst && (
-            <div className="fade-up">
-              <div className="eyebrow mb-3">GST & tax</div>
+          {/* DYNAMIC SECTION 1: BANK */}
+          {quickType === "BANK" && (
+            <div className="fade-up space-y-4 pt-2">
+              <div className="eyebrow">Bank account details</div>
               <div className="grid md:grid-cols-2 gap-3">
-                <Field label="GSTIN" hint={<ValidationHint level={gstinHint?.level} message={gstinHint?.message} />}>
+                <Field label="Bank name">
                   <Input
-                    className="mono uppercase"
-                    maxLength={15}
-                    value={form.gstin}
-                    onChange={(e) => setForm({ ...form, gstin: e.target.value.toUpperCase() })}
-                    placeholder="33AAAAA0000A1Z5"
+                    value={form.bank_name}
+                    onChange={(e) => setForm({ ...form, bank_name: e.target.value })}
+                    placeholder="e.g. HDFC Bank, SBI, ICICI"
                   />
                 </Field>
-                <Field label="GST type">
-                  <Select value={form.gst_type} onChange={(e) => setForm({ ...form, gst_type: e.target.value })}>
-                    <option value="">Select</option>
-                    <option value="REGISTERED">Registered</option>
-                    <option value="UNREGISTERED">Unregistered</option>
-                    <option value="COMPOSITION">Composition</option>
-                    <option value="EXEMPT">Exempt</option>
-                  </Select>
+                <Field label="Account holder name">
+                  <Input
+                    value={form.account_holder_name}
+                    onChange={(e) => setForm({ ...form, account_holder_name: e.target.value })}
+                    placeholder="e.g. My Business Pvt Ltd"
+                  />
                 </Field>
-                <Field label="Default GST rate">
-                  <Select value={form.default_gst_rate} onChange={(e) => setForm({ ...form, default_gst_rate: e.target.value })}>
-                    <option value="">Select</option>
-                    {gstRates.map((g) => (
-                      <option key={g.rate} value={g.rate}>{g.rate}%</option>
-                    ))}
-                  </Select>
+                <Field label="Bank account number">
+                  <Input
+                    className="mono"
+                    value={form.account_number}
+                    onChange={(e) => setForm({ ...form, account_number: e.target.value })}
+                    placeholder="e.g. 50200012345678"
+                  />
                 </Field>
-                <Field label="HSN / SAC">
-                  <Input className="mono" value={form.hsn_sac} onChange={(e) => setForm({ ...form, hsn_sac: e.target.value })} />
+                <Field label="IFSC code">
+                  <Input
+                    className="mono uppercase"
+                    maxLength={11}
+                    value={form.ifsc_code}
+                    onChange={(e) => setForm({ ...form, ifsc_code: e.target.value.toUpperCase() })}
+                    placeholder="e.g. HDFC0001234"
+                  />
+                </Field>
+                <Field label="Branch name" className="md:col-span-2">
+                  <Input
+                    value={form.branch_name}
+                    onChange={(e) => setForm({ ...form, branch_name: e.target.value })}
+                    placeholder="e.g. T. Nagar Branch, Chennai"
+                  />
                 </Field>
               </div>
             </div>
           )}
 
-          <div>
-            <div className="eyebrow mb-3">Contact details</div>
-            <div className="grid md:grid-cols-2 gap-3">
-              <Field label="Address" className="md:col-span-2">
-                <Textarea rows={2} value={form.address} onChange={(e) => setForm({ ...form, address: e.target.value })} />
-              </Field>
-              <Field label="Contact person">
-                <Input value={form.contact_person} onChange={(e) => setForm({ ...form, contact_person: e.target.value })} />
-              </Field>
-              <Field label="Mobile">
-                <Input value={form.mobile} onChange={(e) => setForm({ ...form, mobile: e.target.value })} />
-              </Field>
-              <Field label="Email" className="md:col-span-2">
-                <Input type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />
+          {/* DYNAMIC SECTION 2: CASH */}
+          {quickType === "CASH" && (
+            <div className="fade-up space-y-4 pt-2">
+              <div className="eyebrow">Cash details</div>
+              <Field label="Description / Narration">
+                <Textarea
+                  rows={3}
+                  value={form.description}
+                  onChange={(e) => setForm({ ...form, description: e.target.value })}
+                  placeholder="e.g. Petty cash account maintained for daily office expenses"
+                />
               </Field>
             </div>
-          </div>
+          )}
 
-          <div>
-            <div className="eyebrow mb-3">Credit & billing</div>
-            <div className="grid grid-cols-3 gap-3">
-              <Field label="Credit limit">
-                <Input type="number" value={form.credit_limit} onChange={(e) => setForm({ ...form, credit_limit: e.target.value })} />
-              </Field>
-              <Field label="Payment terms">
-                <Select value={form.payment_terms} onChange={(e) => setForm({ ...form, payment_terms: e.target.value })}>
-                  <option value="">Select</option>
-                  <option>Due on receipt</option>
-                  <option>Net 15</option>
-                  <option>Net 30</option>
-                  <option>Net 45</option>
-                </Select>
-              </Field>
-              <Field label="Default narration">
-                <Input value={form.default_narration} onChange={(e) => setForm({ ...form, default_narration: e.target.value })} />
-              </Field>
-            </div>
-          </div>
+          {/* DYNAMIC SECTION 3: CUSTOMER / VENDOR / BOTH */}
+          {(quickType === "CUSTOMER" || quickType === "VENDOR" || quickType === "BOTH") && (
+            <div className="fade-up space-y-5 pt-2">
+              {quickType === "BOTH" && (
+                <div className="rounded-md border border-[var(--teal)]/40 bg-[var(--teal-soft)]/50 px-3.5 py-2.5 text-xs text-foreground flex items-center gap-2">
+                  <span className="font-semibold text-[var(--teal)]">Dual Role Party:</span>
+                  <span>
+                    Will create linked accounts under <b>Sundry Debtors</b> (receivable) and{" "}
+                    <b>Sundry Creditors</b> (payable).
+                  </span>
+                </div>
+              )}
 
-          <div>
-            <div className="eyebrow mb-3">Advanced</div>
-            <div className="grid md:grid-cols-2 gap-3">
-              <Field label="Tags (comma separated)">
-                <Input value={form.tags} onChange={(e) => setForm({ ...form, tags: e.target.value })} placeholder="priority, north-zone" />
-              </Field>
-              <Field label="Department / project">
-                <Select value={form.cost_center_id} onChange={(e) => setForm({ ...form, cost_center_id: e.target.value })}>
-                  <option value="">None</option>
-                  {costCenters.map((c) => (
-                    <option key={c.id} value={c.id}>{c.name}</option>
-                  ))}
-                </Select>
-              </Field>
-              {customDefs.map((d) => (
-                <Field key={d.id} label={d.field_label} required={d.is_required === "Y"}>
-                  {d.field_type === "SELECT" && d.options ? (
+              <div>
+                <div className="eyebrow mb-3">GST & Tax</div>
+                <div className="grid md:grid-cols-3 gap-3">
+                  <Field label="GSTIN" hint={<ValidationHint level={gstinHint?.level} message={gstinHint?.message} />}>
+                    <Input
+                      className="mono uppercase"
+                      maxLength={15}
+                      value={form.gstin}
+                      onChange={(e) => setForm({ ...form, gstin: e.target.value.toUpperCase() })}
+                      placeholder="33AAAAA0000A1Z5"
+                    />
+                  </Field>
+                  <Field label="GST type">
+                    <Select value={form.gst_type} onChange={(e) => setForm({ ...form, gst_type: e.target.value })}>
+                      <option value="">Select</option>
+                      <option value="REGISTERED">Registered</option>
+                      <option value="UNREGISTERED">Unregistered</option>
+                      <option value="COMPOSITION">Composition</option>
+                      <option value="EXEMPT">Exempt</option>
+                    </Select>
+                  </Field>
+                  <Field label="PAN">
+                    <Input
+                      className="mono uppercase"
+                      maxLength={10}
+                      value={form.pan}
+                      onChange={(e) => setForm({ ...form, pan: e.target.value.toUpperCase() })}
+                      placeholder="ABCDE1234F"
+                    />
+                  </Field>
+                </div>
+              </div>
+
+              <div>
+                <div className="eyebrow mb-3">Contact details</div>
+                <div className="grid md:grid-cols-3 gap-3">
+                  <Field label="Contact person">
+                    <Input
+                      value={form.contact_person}
+                      onChange={(e) => setForm({ ...form, contact_person: e.target.value })}
+                    />
+                  </Field>
+                  <Field label="Mobile">
+                    <Input value={form.mobile} onChange={(e) => setForm({ ...form, mobile: e.target.value })} />
+                  </Field>
+                  <Field label="Email">
+                    <Input type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />
+                  </Field>
+                </div>
+              </div>
+
+              <div>
+                <div className="eyebrow mb-3">Billing Address</div>
+                <div className="grid md:grid-cols-2 gap-3">
+                  <Field label="Address line 1" className="md:col-span-2">
+                    <Input
+                      value={form.b_line1}
+                      onChange={(e) => setForm({ ...form, b_line1: e.target.value })}
+                      placeholder="Building, Street"
+                    />
+                  </Field>
+                  <Field label="Address line 2" className="md:col-span-2">
+                    <Input
+                      value={form.b_line2}
+                      onChange={(e) => setForm({ ...form, b_line2: e.target.value })}
+                      placeholder="Area, Landmark"
+                    />
+                  </Field>
+                  <Field label="City">
+                    <Input value={form.b_city} onChange={(e) => setForm({ ...form, b_city: e.target.value })} />
+                  </Field>
+                  <Field label="State">
+                    <Input value={form.b_state} onChange={(e) => setForm({ ...form, b_state: e.target.value })} />
+                  </Field>
+                  <Field label="Pincode">
+                    <Input value={form.b_pincode} onChange={(e) => setForm({ ...form, b_pincode: e.target.value })} />
+                  </Field>
+                </div>
+              </div>
+
+              <div>
+                <div className="flex items-center justify-between mb-3">
+                  <div className="eyebrow">Shipping Address</div>
+                  <label className="flex items-center gap-2 cursor-pointer text-xs font-medium text-foreground select-none">
+                    <input
+                      type="checkbox"
+                      className="h-3.5 w-3.5 rounded accent-[var(--teal)] cursor-pointer"
+                      checked={form.same_as_billing}
+                      onChange={(e) => setForm({ ...form, same_as_billing: e.target.checked })}
+                    />
+                    <span>Same as billing address</span>
+                  </label>
+                </div>
+                {!form.same_as_billing && (
+                  <div className="grid md:grid-cols-2 gap-3 fade-up">
+                    <Field label="Address line 1" className="md:col-span-2">
+                      <Input
+                        value={form.s_line1}
+                        onChange={(e) => setForm({ ...form, s_line1: e.target.value })}
+                        placeholder="Building, Street"
+                      />
+                    </Field>
+                    <Field label="Address line 2" className="md:col-span-2">
+                      <Input
+                        value={form.s_line2}
+                        onChange={(e) => setForm({ ...form, s_line2: e.target.value })}
+                        placeholder="Area, Landmark"
+                      />
+                    </Field>
+                    <Field label="City">
+                      <Input value={form.s_city} onChange={(e) => setForm({ ...form, s_city: e.target.value })} />
+                    </Field>
+                    <Field label="State">
+                      <Input value={form.s_state} onChange={(e) => setForm({ ...form, s_state: e.target.value })} />
+                    </Field>
+                    <Field label="Pincode">
+                      <Input value={form.s_pincode} onChange={(e) => setForm({ ...form, s_pincode: e.target.value })} />
+                    </Field>
+                  </div>
+                )}
+              </div>
+
+              <div>
+                <div className="eyebrow mb-3">Credit & Terms</div>
+                <div className="grid md:grid-cols-2 gap-3">
+                  <Field label="Credit limit (₹)">
+                    <Input
+                      type="number"
+                      value={form.credit_limit}
+                      onChange={(e) => setForm({ ...form, credit_limit: e.target.value })}
+                    />
+                  </Field>
+                  <Field label="Payment terms">
                     <Select
-                      value={form.custom_fields[d.field_name] || ""}
-                      onChange={(e) => setForm({ ...form, custom_fields: { ...form.custom_fields, [d.field_name]: e.target.value } })}
+                      value={form.payment_terms}
+                      onChange={(e) => setForm({ ...form, payment_terms: e.target.value })}
                     >
                       <option value="">Select</option>
-                      {d.options.map((o) => (
-                        <option key={o}>{o}</option>
+                      <option>Due on receipt</option>
+                      <option>Net 15</option>
+                      <option>Net 30</option>
+                      <option>Net 45</option>
+                    </Select>
+                  </Field>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* DYNAMIC SECTION 4: GENERAL / UNCHECKED */}
+          {quickType === "" && (
+            <div className="fade-up space-y-6 pt-2">
+              <div>
+                <div className="eyebrow mb-3">GST & tax</div>
+                <div className="grid md:grid-cols-2 gap-3">
+                  <Field label="Default GST rate">
+                    <Select
+                      value={form.default_gst_rate}
+                      onChange={(e) => setForm({ ...form, default_gst_rate: e.target.value })}
+                    >
+                      <option value="">Select</option>
+                      {gstRates.map((g) => (
+                        <option key={g.rate} value={g.rate}>{g.rate}%</option>
                       ))}
                     </Select>
-                  ) : (
+                  </Field>
+                  <Field label="HSN / SAC">
                     <Input
-                      type={d.field_type === "NUMBER" ? "number" : d.field_type === "DATE" ? "date" : "text"}
-                      value={form.custom_fields[d.field_name] || ""}
-                      onChange={(e) => setForm({ ...form, custom_fields: { ...form.custom_fields, [d.field_name]: e.target.value } })}
+                      className="mono"
+                      value={form.hsn_sac}
+                      onChange={(e) => setForm({ ...form, hsn_sac: e.target.value })}
                     />
-                  )}
-                </Field>
-              ))}
-              <Field label="Description" className="md:col-span-2">
-                <Textarea rows={2} value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} />
-              </Field>
+                  </Field>
+                </div>
+              </div>
+
+              <div>
+                <div className="eyebrow mb-3">Description & Advanced</div>
+                <div className="grid md:grid-cols-2 gap-3">
+                  <Field label="Description" className="md:col-span-2">
+                    <Textarea
+                      rows={2}
+                      value={form.description}
+                      onChange={(e) => setForm({ ...form, description: e.target.value })}
+                    />
+                  </Field>
+                  <Field label="Department / project">
+                    <Select
+                      value={form.cost_center_id}
+                      onChange={(e) => setForm({ ...form, cost_center_id: e.target.value })}
+                    >
+                      <option value="">None</option>
+                      {costCenters.map((c) => (
+                        <option key={c.id} value={c.id}>{c.name}</option>
+                      ))}
+                    </Select>
+                  </Field>
+                  <Field label="Tags">
+                    <Input
+                      value={form.tags}
+                      onChange={(e) => setForm({ ...form, tags: e.target.value })}
+                      placeholder="e.g. expense, admin"
+                    />
+                  </Field>
+                </div>
+              </div>
             </div>
-          </div>
+          )}
         </div>
       </Drawer>
 
@@ -1116,12 +1727,52 @@ export function Ledgers() {
       >
         <div className="space-y-5">
           <div>
-            <div className="eyebrow mb-3">Group & date</div>
+            <div className="eyebrow mb-3">Group</div>
+            {/* Quick Type Selection */}
+            <div className="flex flex-wrap items-center gap-6 py-2 px-3 mb-3 rounded-md bg-muted/40 border border-border/60">
+              <label className="flex items-center gap-2 cursor-pointer text-sm font-medium">
+                <input
+                  type="checkbox"
+                  className="h-4 w-4 rounded border-border text-[var(--teal)] focus:ring-[var(--teal)]"
+                  checked={bulkQuickType === "BANK"}
+                  onChange={() => selectBulkQuickType("BANK")}
+                />
+                <span>Bank</span>
+              </label>
+              <label className="flex items-center gap-2 cursor-pointer text-sm font-medium">
+                <input
+                  type="checkbox"
+                  className="h-4 w-4 rounded border-border text-[var(--teal)] focus:ring-[var(--teal)]"
+                  checked={bulkQuickType === "CASH"}
+                  onChange={() => selectBulkQuickType("CASH")}
+                />
+                <span>Cash</span>
+              </label>
+              <label className="flex items-center gap-2 cursor-pointer text-sm font-medium">
+                <input
+                  type="checkbox"
+                  className="h-4 w-4 rounded border-border text-[var(--teal)] focus:ring-[var(--teal)]"
+                  checked={bulkQuickType === "CUSTOMER"}
+                  onChange={() => selectBulkQuickType("CUSTOMER")}
+                />
+                <span>Customer</span>
+              </label>
+              <label className="flex items-center gap-2 cursor-pointer text-sm font-medium">
+                <input
+                  type="checkbox"
+                  className="h-4 w-4 rounded border-border text-[var(--teal)] focus:ring-[var(--teal)]"
+                  checked={bulkQuickType === "VENDOR"}
+                  onChange={() => selectBulkQuickType("VENDOR")}
+                />
+                <span>Vendor</span>
+              </label>
+            </div>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
               <Field label="Primary">
                 <Select
                   value={bulkPrimary}
                   onChange={(e) => {
+                    setBulkQuickType("");
                     setBulkPrimary(e.target.value);
                     setBulkMain("");
                     setBulkGroup("");
@@ -1139,6 +1790,7 @@ export function Ledgers() {
                   value={bulkMain}
                   disabled={!bulkPrimary}
                   onChange={(e) => {
+                    setBulkQuickType("");
                     setBulkMain(e.target.value);
                     setBulkGroup("");
                     setBulkErrors({});
@@ -1154,7 +1806,10 @@ export function Ledgers() {
                 <Select
                   value={bulkGroup}
                   disabled={!bulkMain}
-                  onChange={(e) => selectBulkGroup(e.target.value)}
+                  onChange={(e) => {
+                    setBulkQuickType("");
+                    selectBulkGroup(e.target.value);
+                  }}
                 >
                   <option value="">Select</option>
                   {bulkSubs.map((g) => (
@@ -1380,28 +2035,6 @@ export function Ledgers() {
             <p className="text-xs text-muted-foreground mt-1">Add many ledgers at once in a grid, under one sub-category.</p>
           </button>
         </div>
-      </Modal>
-
-      <Modal
-        open={mergeOpen}
-        onClose={() => setMergeOpen(false)}
-        title="Merge duplicate ledger"
-        desc="Voucher lines are repointed to the target and the source is deactivated (audit-trailed)."
-        footer={
-          <>
-            <Button variant="outline" onClick={() => setMergeOpen(false)}>Cancel</Button>
-            <Button variant="destructive" onClick={doMerge} disabled={!mergeTarget}>Merge</Button>
-          </>
-        }
-      >
-        <Field label="Merge into">
-          <Select value={mergeTarget} onChange={(e) => setMergeTarget(e.target.value)}>
-            <option value="">Select target ledger</option>
-            {ledgers.filter((l) => !selected.has(l.id)).map((l) => (
-              <option key={l.id} value={l.id}>{l.name}</option>
-            ))}
-          </Select>
-        </Field>
       </Modal>
 
       <ConfirmDialog

@@ -14,6 +14,7 @@ class BankAccount(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     account_type = Column(String(10), default="BANK")  # BANK / CASH
     bank_name = Column(String(100))
+    account_holder_name = Column(String(100))
     account_number = Column(String(30))
     ifsc_code = Column(String(11))
     branch = Column(String(100))

@@ -1,5 +1,6 @@
 from sqlalchemy.orm import Session
 from app.models.voucher_sequence import VoucherSequence
+from app.models.voucher_type import VoucherType
 from app.schemas.response import Status
 from typing import List, Tuple, Optional
 import uuid
@@ -12,6 +13,44 @@ class VoucherSequenceService:
     ) -> Tuple[List[dict], str, str]:
         if company_id is None:
             return ([], Status.SUCCESS, "No company selected")
+
+        # Ensure any active Voucher Types have a corresponding sequence
+        try:
+            active_types = (
+                db.query(VoucherType)
+                .filter(VoucherType.company_id == company_id, VoucherType.active == "Y")
+                .all()
+            )
+            existing_seq_types = {
+                s[0]
+                for s in db.query(VoucherSequence.voucher_type)
+                .filter(VoucherSequence.company_id == company_id)
+                .all()
+            }
+            new_added = False
+            for vt in active_types:
+                # Custom voucher types are keyed by their name
+                key = vt.name if str(vt.is_system) == "N" else str(vt.base_voucher_type)
+                if key not in existing_seq_types:
+                    prefix = (vt.abbreviation or vt.name[:3] or "VC").strip().upper()
+                    db.add(
+                        VoucherSequence(
+                            company_id=company_id,
+                            voucher_type=key,
+                            prefix=prefix,
+                            last_number=0,
+                            number_width=4,
+                            active="Y",
+                            created_by="system",
+                        )
+                    )
+                    existing_seq_types.add(key)
+                    new_added = True
+            if new_added:
+                db.commit()
+        except Exception:
+            db.rollback()
+
         sequences = (
             db.query(VoucherSequence)
             .filter(

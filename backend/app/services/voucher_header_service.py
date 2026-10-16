@@ -1,3 +1,4 @@
+from fastapi import HTTPException
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 from app.models.voucher_header import VoucherHeader
@@ -7,6 +8,7 @@ from app.models.ledger_group import LedgerGroup
 from app.models.voucher_sequence import VoucherSequence
 from app.models.system_setting import SystemSetting
 from app.models.voucher_type import VoucherType
+from app.models.user_master import UserMaster
 from app.schemas.voucher_header import VoucherHeaderCreate, VoucherHeaderUpdate
 from app.schemas.response import Status
 from app.services.voucher_type_service import VoucherTypeService
@@ -238,22 +240,9 @@ class VoucherHeaderService:
                 "groupName": grp_name,
                 "groupPath": group_path or None,
             }
-            for side in ("DEBIT", "CREDIT"):
-                if VoucherHeaderService._ledger_matches_rule(
-                    db,
-                    lg_id,
-                    base_voucher_type,
-                    side,
-                    str(lcat or ""),
-                    group_path,
-                    str(lbal or ""),
-                    str(is_b or "N"),
-                    str(is_c or "N"),
-                    str(lname or ""),
-                    custom_type_name=custom_type_name,
-                    group_map=group_map,
-                ):
-                    options[side].append(item)
+            # Allow any active ledger on both DEBIT and CREDIT
+            options["DEBIT"].append(item)
+            options["CREDIT"].append(item)
 
         return (
             {
@@ -511,8 +500,14 @@ class VoucherHeaderService:
                 VoucherHeaderService._compute_and_validate_totals(data.details)
             )
             VoucherHeaderService._validate_ledgers(db, data.details, company_id)
+            # Use custom voucher type name if user-created, otherwise base type
+            seq_key = (
+                str(selected_type.name)
+                if selected_type and str(getattr(selected_type, "is_system", "Y")) == "N"
+                else base_voucher_type
+            )
             voucher_no = VoucherHeaderService._generate_voucher_no(
-                db, base_voucher_type, company_id=company_id
+                db, seq_key, company_id=company_id
             )
         except ValueError as e:
             db.rollback()
@@ -579,8 +574,8 @@ class VoucherHeaderService:
         db_header = query.first()
         if not db_header:
             return (None, Status.ERROR, "Voucher not found")
-        if db_header.voucher_status != "DRAFT":
-            return (None, Status.ERROR, "Only DRAFT vouchers can be edited")
+        if db_header.voucher_status == "CANCELLED":
+            return (None, Status.ERROR, "CANCELLED vouchers cannot be edited")
 
         new_date = data.voucher_date if data.voucher_date is not None else db_header.voucher_date
         new_due_date = data.due_date if "due_date" in data.model_fields_set else db_header.due_date

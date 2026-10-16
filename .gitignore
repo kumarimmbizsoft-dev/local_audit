@@ -14,8 +14,9 @@ develop-eggs/
 downloads/
 eggs/
 .eggs/
-lib/
-lib64/
+/lib/
+/lib64/
+!frontend-react/src/lib/
 parts/
 sdist/
 var/
@@ -29,6 +30,8 @@ wheels/
 .coverage
 htmlcov/
 backend/immbiz_test.db*
+*.db-shm
+*.db-wal
 
 # Node / Frontend
 node_modules/

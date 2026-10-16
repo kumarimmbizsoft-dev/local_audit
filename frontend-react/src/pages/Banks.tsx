@@ -15,6 +15,7 @@ interface Account {
   id: string;
   account_type: string;
   bank_name: string | null;
+  account_holder_name?: string | null;
   account_number: string | null;
   ifsc_code: string | null;
   branch: string | null;
@@ -29,6 +30,7 @@ const empty = () => ({
   id: null as string | null,
   account_type: "BANK",
   bank_name: "",
+  account_holder_name: "",
   account_number: "",
   ifsc_code: "",
   branch: "",
@@ -90,6 +92,7 @@ export function Banks() {
       id: b.id,
       account_type: b.account_type,
       bank_name: b.bank_name || "",
+      account_holder_name: (b as any).account_holder_name || "",
       account_number: b.account_number || "",
       ifsc_code: b.ifsc_code || "",
       branch: b.branch || "",
@@ -108,6 +111,7 @@ export function Banks() {
     const payload: any = {
       account_type: form.account_type,
       bank_name: form.bank_name.trim(),
+      account_holder_name: form.account_holder_name ? form.account_holder_name.trim() : null,
       account_number: form.account_number || null,
       ifsc_code: form.ifsc_code ? form.ifsc_code.toUpperCase() : null,
       branch: form.branch || null,
@@ -238,6 +242,9 @@ export function Banks() {
           </Field>
           {form.account_type === "BANK" && (
             <>
+              <Field label="Account holder name">
+                <Input value={form.account_holder_name} onChange={(e) => setForm({ ...form, account_holder_name: e.target.value })} placeholder="e.g. My Business Pvt Ltd" />
+              </Field>
               <div className="grid grid-cols-2 gap-3">
                 <Field label="Account number">
                   <Input className="mono" value={form.account_number} onChange={(e) => setForm({ ...form, account_number: e.target.value })} />

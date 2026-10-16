@@ -62,7 +62,7 @@ def validate_ledger(
     _=Depends(require_permission(FEATURE_LEDGER, "view")),
 ):
     data = LedgerService.validate(
-        db, body.name, body.gstin, body.id, company_id=company_id
+        db, body.name, body.gstin, body.id, company_id=company_id, ledger_group_id=body.ledger_group_id
     )
     return _resp(data, Status.SUCCESS, "Validation complete")
 

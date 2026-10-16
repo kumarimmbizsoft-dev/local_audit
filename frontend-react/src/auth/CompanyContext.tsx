@@ -19,6 +19,8 @@ export interface CompanySummary {
   maintain_mode: "ACCOUNT_ONLY" | "ACCOUNT_WITH_INVENTORY";
   gstin?: string | null;
   currency?: string | null;
+  financial_year_start?: string | null;
+  financial_year_end?: string | null;
 }
 
 interface CompanyContextValue {

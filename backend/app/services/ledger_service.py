@@ -123,6 +123,7 @@ class LedgerService:
         gstin: Optional[str],
         exclude_id: Optional[UUID] = None,
         company_id: Optional[UUID] = None,
+        ledger_group_id: Optional[UUID] = None,
     ) -> Dict[str, Any]:
         """Realtime duplicate + GST + mandatory validations for inline UX."""
         out: Dict[str, Any] = {"name": None, "gstin": None, "suggest_group": None}
@@ -135,13 +136,15 @@ class LedgerService:
                 q = q.filter(Ledger.company_id == company_id)
             if exclude_id:
                 q = q.filter(Ledger.id != exclude_id)
+            if ledger_group_id:
+                q = q.filter(Ledger.ledger_group_id == ledger_group_id)
             dup = q.first()
             if not name.strip():
                 out["name"] = {"level": "error", "message": "Ledger name is required"}
             elif dup:
                 out["name"] = {
                     "level": "error",
-                    "message": f"A ledger named '{dup.name}' already exists",
+                    "message": f"A ledger named '{dup.name}' already exists in this group",
                     "duplicate_id": str(dup.id),
                 }
             else:
@@ -187,9 +190,11 @@ class LedgerService:
         )
         if company_id is not None:
             q = q.filter(Ledger.company_id == company_id)
+        if ledger.ledger_group_id is not None:
+            q = q.filter(Ledger.ledger_group_id == ledger.ledger_group_id)
         dup = q.first()
         if dup:
-            return (None, Status.ERROR, "Ledger name must be unique")
+            return (None, Status.ERROR, "Ledger name must be unique in this group")
         data = ledger.model_dump(exclude_unset=True)
         if company_id is not None:
             data["company_id"] = company_id

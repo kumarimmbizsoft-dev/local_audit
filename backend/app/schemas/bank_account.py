@@ -8,6 +8,7 @@ from decimal import Decimal
 class BankAccountBase(BaseModel):
     account_type: str = "BANK"
     bank_name: Optional[str] = Field(None, max_length=100)
+    account_holder_name: Optional[str] = Field(None, max_length=100)
     account_number: Optional[str] = Field(None, max_length=30)
     ifsc_code: Optional[str] = Field(None, max_length=11)
     branch: Optional[str] = Field(None, max_length=100)

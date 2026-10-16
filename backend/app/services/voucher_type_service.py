@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 
 from app.models.lov import Lov
 from app.models.voucher_header import VoucherHeader
+from app.models.voucher_sequence import VoucherSequence
 from app.models.voucher_type import VoucherType
 from app.schemas.response import Status
 from app.schemas.voucher_type import VoucherTypeCreate, VoucherTypeUpdate
@@ -198,6 +199,24 @@ class VoucherTypeService:
             created_by=actor,
         )
         db.add(row)
+
+        # Auto-create corresponding voucher sequence for System Settings
+        seq_prefix = (payload.abbreviation or clean_name[:3] or "VC").strip().upper()
+        existing_seq = db.query(VoucherSequence).filter(
+            VoucherSequence.company_id == company_id,
+            VoucherSequence.voucher_type == clean_name,
+        ).first()
+        if not existing_seq:
+            db_seq = VoucherSequence(
+                company_id=company_id,
+                voucher_type=clean_name,
+                prefix=seq_prefix,
+                last_number=0,
+                number_width=4,
+                active=payload.active,
+                created_by=actor,
+            )
+            db.add(db_seq)
         try:
             db.commit()
         except IntegrityError:
@@ -272,12 +291,27 @@ class VoucherTypeService:
                 "Base Voucher Type cannot be changed after transactions exist",
             )
 
-        name_changed = name != row.name
+        old_name = row.name
+        name_changed = name != old_name
         row.name = name
         row.base_voucher_type = base_voucher_type
         if "abbreviation" in changes:
             row.abbreviation = changes["abbreviation"]
+        if "active" in changes:
+            row.active = changes["active"]
         row.modified_by = actor
+
+        # Keep sequence in sync with voucher type name and active status
+        seq = db.query(VoucherSequence).filter(
+            VoucherSequence.company_id == company_id,
+            VoucherSequence.voucher_type == old_name,
+        ).first()
+        if seq:
+            if name_changed:
+                seq.voucher_type = name
+            if "active" in changes:
+                seq.active = changes["active"]
+            seq.modified_by = actor
 
         # Synchronize denormalized voucher_type_name for DRAFT vouchers
         if name_changed:
@@ -318,6 +352,16 @@ class VoucherTypeService:
             return (None, Status.ERROR, "Voucher type not found")
         row.active = active
         row.modified_by = actor
+
+        # Keep sequence active status in sync
+        seq = db.query(VoucherSequence).filter(
+            VoucherSequence.company_id == company_id,
+            VoucherSequence.voucher_type == row.name,
+        ).first()
+        if seq:
+            seq.active = active
+            seq.modified_by = actor
+
         db.commit()
         db.refresh(row)
         action = "activated" if active == "Y" else "deactivated"

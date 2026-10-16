@@ -52,6 +52,7 @@ class LedgerValidateRequest(BaseModel):
     id: Optional[UUID] = None
     name: Optional[str] = None
     gstin: Optional[str] = None
+    ledger_group_id: Optional[UUID] = None
 
 
 class LedgerQuickCreate(BaseModel):

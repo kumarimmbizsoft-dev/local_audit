@@ -318,6 +318,14 @@ export function TradeVoucher({ kind }: TradeVoucherProps) {
   function buildDetails(): { ok: boolean; details?: any[]; error?: string } {
     const party = partyOptions.find((p) => p.id === form.party_id);
     if (!party?.ledger_id) return { ok: false, error: `${partyWord} has no linked ledger` };
+    const partyName = (party.name_contact_info?.company_name || party.name_contact_info?.display_name || party.name_contact_info?.first_name || "").trim().toLowerCase();
+    let effectiveLedgerId = party.ledger_id;
+    if (!isSales && party.key_group === "B") {
+      const creditorLedger = ledgers.find((l) => l.name.trim().toLowerCase() === partyName && (l.category === "vendor" || (l as any).balance_type === "CR"));
+      if (creditorLedger) {
+        effectiveLedgerId = creditorLedger.id;
+      }
+    }
     const salesAcct = need("Sales Account");
     const purchaseAcct = need("Purchase Account");
     const cgstL = need(isSales ? "Output CGST" : "Input CGST");
@@ -329,7 +337,7 @@ export function TradeVoucher({ kind }: TradeVoucherProps) {
 
     const rows: Array<{ ledger_id: string; debit_amount: number; credit_amount: number; remarks?: string | null }> = [];
     if (isSales) {
-      rows.push({ ledger_id: party.ledger_id, debit_amount: totals.grand, credit_amount: 0, remarks: form.invoice_no || null });
+      rows.push({ ledger_id: effectiveLedgerId, debit_amount: totals.grand, credit_amount: 0, remarks: form.invoice_no || null });
       rows.push({ ledger_id: revenueLedger.id, debit_amount: 0, credit_amount: totals.taxable, remarks: "Taxable value" });
       if (totals.cgst > 0 && cgstL) rows.push({ ledger_id: cgstL.id, debit_amount: 0, credit_amount: totals.cgst, remarks: "CGST" });
       if (totals.sgst > 0 && sgstL) rows.push({ ledger_id: sgstL.id, debit_amount: 0, credit_amount: totals.sgst, remarks: "SGST" });
@@ -339,7 +347,7 @@ export function TradeVoucher({ kind }: TradeVoucherProps) {
       if (totals.cgst > 0 && cgstL) rows.push({ ledger_id: cgstL.id, debit_amount: totals.cgst, credit_amount: 0, remarks: "CGST" });
       if (totals.sgst > 0 && sgstL) rows.push({ ledger_id: sgstL.id, debit_amount: totals.sgst, credit_amount: 0, remarks: "SGST" });
       if (totals.igst > 0 && igstL) rows.push({ ledger_id: igstL.id, debit_amount: totals.igst, credit_amount: 0, remarks: "IGST" });
-      rows.push({ ledger_id: party.ledger_id, debit_amount: 0, credit_amount: totals.grand, remarks: form.invoice_no || null });
+      rows.push({ ledger_id: effectiveLedgerId, debit_amount: 0, credit_amount: totals.grand, remarks: form.invoice_no || null });
     }
     // Absorb sub-rupee rounding into Round Off to keep the voucher balanced.
     const dr = round2(rows.reduce((s, r) => s + r.debit_amount, 0));

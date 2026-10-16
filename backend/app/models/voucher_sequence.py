@@ -16,7 +16,7 @@ class VoucherSequence(Base):
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     company_id = Column(UUID(as_uuid=True), index=True, nullable=False)
-    voucher_type = Column(String(20), nullable=False)
+    voucher_type = Column(String(100), nullable=False)
     prefix = Column(String(10), nullable=False)
     last_number = Column(Integer, default=0)
     number_width = Column(Integer, default=4)

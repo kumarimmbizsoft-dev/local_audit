@@ -19,6 +19,7 @@ class BankAccountService:
             "id": str(b.id),
             "account_type": b.account_type,
             "bank_name": b.bank_name,
+            "account_holder_name": b.account_holder_name,
             "account_number": b.account_number,
             "ifsc_code": b.ifsc_code,
             "branch": b.branch,

@@ -644,7 +644,7 @@ def ensure_voucher_type_schema() -> None:
     if not IS_SQLITE:
         with engine.begin() as connection:
             try:
-                connection.execute(text('ALTER TABLE master.voucher_sequence ALTER COLUMN voucher_type TYPE VARCHAR(20)'))
+                connection.execute(text('ALTER TABLE master.voucher_sequence ALTER COLUMN voucher_type TYPE VARCHAR(100)'))
                 connection.execute(text('ALTER TABLE master.voucher_header ALTER COLUMN voucher_type TYPE VARCHAR(20)'))
                 connection.execute(text('ALTER TABLE master.voucher_type ALTER COLUMN base_voucher_type TYPE VARCHAR(20)'))
             except Exception:
@@ -662,6 +662,27 @@ def ensure_lov_schema() -> None:
                 )
             except Exception:
                 pass
+
+
+def ensure_bank_account_schema() -> None:
+    """Ensure bank_account has account_holder_name column."""
+    fq_table = "bank_account" if IS_SQLITE else 'master."bank_account"'
+    with engine.begin() as connection:
+        if IS_SQLITE:
+            try:
+                connection.execute(
+                    text(f"ALTER TABLE {fq_table} ADD COLUMN account_holder_name VARCHAR(100)")
+                )
+            except Exception:
+                pass
+        else:
+            try:
+                connection.execute(
+                    text(f"ALTER TABLE {fq_table} ADD COLUMN IF NOT EXISTS account_holder_name VARCHAR(100)")
+                )
+            except Exception:
+                pass
+
 
 
 def ensure_reference_data() -> None:
@@ -1171,6 +1192,7 @@ def init_db() -> None:
     ensure_voucher_header_source_fields()
     ensure_voucher_type_schema()
     ensure_lov_schema()
+    ensure_bank_account_schema()
     ensure_voucher_sequence_schema()
     ensure_company_scoping()
     seed_defaults()

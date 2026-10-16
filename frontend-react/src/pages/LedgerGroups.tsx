@@ -47,11 +47,18 @@ export function LedgerGroups() {
   const [q, setQ] = useState("");
 
   const [drawer, setDrawer] = useState(false);
-  const [form, setForm] = useState<{ id: string | null; name: string; parent_id: string; balance_type: string }>({
+  const [form, setForm] = useState<{
+    id: string | null;
+    name: string;
+    parent_id: string;
+    balance_type: string;
+    key_group: "M" | "S";
+  }>({
     id: null,
     name: "",
     parent_id: "",
     balance_type: "",
+    key_group: "S",
   });
   const [submitted, setSubmitted] = useState(false);
   const [toDelete, setToDelete] = useState<Group | null>(null);
@@ -75,17 +82,30 @@ export function LedgerGroups() {
     .filter((g) => `${g.name} ${byId.get(g.parent_id || "")?.name || ""}`.toLowerCase().includes(q.toLowerCase()));
 
   const editingGroup = form.id ? groups.find((g) => g.id === form.id) : null;
-  const isEditingMain = editingGroup?.key_group === "M";
-  const parentOptions = isEditingMain ? primaries : mains;
-  const parentLabel = isEditingMain ? "Primary category" : "Main category";
+  const isMain = form.id ? editingGroup?.key_group === "M" : form.key_group === "M";
+  const parentOptions = isMain ? primaries : mains;
+  const parentLabel = isMain ? "Primary category" : "Main category";
 
-  function openNew() {
-    setForm({ id: null, name: "", parent_id: "", balance_type: "" });
+  function openNewSub() {
+    setForm({ id: null, name: "", parent_id: "", balance_type: "", key_group: "S" });
     setSubmitted(false);
     setDrawer(true);
   }
+
+  function openNewMain() {
+    setForm({ id: null, name: "", parent_id: "", balance_type: "", key_group: "M" });
+    setSubmitted(false);
+    setDrawer(true);
+  }
+
   function openEdit(g: Group) {
-    setForm({ id: g.id, name: g.name, parent_id: g.parent_id || "", balance_type: g.balance_type || "" });
+    setForm({
+      id: g.id,
+      name: g.name,
+      parent_id: g.parent_id || "",
+      balance_type: g.balance_type || "",
+      key_group: (g.key_group as "M" | "S") || "S",
+    });
     setSubmitted(false);
     setDrawer(true);
   }
@@ -100,7 +120,7 @@ export function LedgerGroups() {
       active: "Y",
     };
     if (!form.id) {
-      payload.key_group = "S";
+      payload.key_group = form.key_group;
     }
     const r = form.id
       ? await api.put(`/ledger-groups/${form.id}`, payload)
@@ -109,7 +129,12 @@ export function LedgerGroups() {
       toast({ title: "Could not save", desc: envelopeMessage(r), tone: "error" });
       return;
     }
-    toast({ title: form.id ? (isEditingMain ? "Main category updated" : "Sub-category updated") : "Sub-category created", tone: "success" });
+    toast({
+      title: form.id
+        ? (isMain ? "Main category updated" : "Sub-category updated")
+        : (isMain ? "Main category created" : "Sub-category created"),
+      tone: "success",
+    });
     setDrawer(false);
     load();
   }
@@ -148,8 +173,14 @@ export function LedgerGroups() {
               {t === "P" ? "Primary" : t === "M" ? "Main" : "Sub-categories"}
             </button>
           ))}
+          {tab === "M" && canWrite && (
+            <Button size="sm" variant="outline" className="ml-auto" onClick={openNewMain}>
+              <Plus className="h-4 w-4 mr-1.5" />
+              Add main category
+            </Button>
+          )}
           {tab === "S" && canWrite && (
-            <Button size="sm" variant="outline" className="ml-auto" onClick={openNew}>
+            <Button size="sm" variant="outline" className="ml-auto" onClick={openNewSub}>
               <Plus className="h-4 w-4 mr-1.5" />
               Add sub-category
             </Button>
@@ -211,7 +242,7 @@ export function LedgerGroups() {
       <Drawer
         open={drawer}
         onClose={() => setDrawer(false)}
-        title={form.id ? (isEditingMain ? "Edit main category" : "Edit sub-category") : "New sub-category"}
+        title={form.id ? (isMain ? "Edit main category" : "Edit sub-category") : (isMain ? "New main category" : "New sub-category")}
         footer={
           <>
             <Button variant="outline" onClick={() => setDrawer(false)}>
